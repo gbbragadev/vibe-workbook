@@ -515,7 +515,7 @@
       '<div class="meta-list">' +
       metaItem('Runbook Status', op.runbook_status) +
       metaItem('Runbook Path', op.runbook_path || 'N/A') +
-      metaItem('Last Readiness Check', op.last_readiness_check ? new Date(op.last_readiness_check).toLocaleString() : 'N/A') +
+      metaItem('Readiness Evaluation', op.last_readiness_check === 'on-demand' ? 'Evaluated on demand (per request)' : 'N/A') +
       metaItem('Operational Notes', op.operational_notes || 'None') +
       '</div>' +
       (op.next_post_release_action ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Post-Release Action</span><p style="margin-top:6px;font-size:13px">' + esc(op.next_post_release_action) + '</p></div>' : '') +
