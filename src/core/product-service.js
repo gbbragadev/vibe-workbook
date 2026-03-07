@@ -422,6 +422,9 @@ function derivePipeline(product, artifacts, relatedSessions, handoffs, runs) {
       .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0] || null;
     const latestOutgoingHandoff = getLatestOutgoingHandoff(handoffs, stage.id);
     const latestIncomingHandoff = getLatestIncomingHandoff(handoffs, stage.id);
+    const latestCompletion = latestOutgoingHandoff
+      || (completedRun?.latest_completion || completedRun?.latest_handoff || null)
+      || null;
     const artifactsComplete = stage.requiredArtifacts.every((artifactId) => artifactMap[artifactId] && artifactMap[artifactId].exists);
     const previousStagesDone = STAGE_PRESETS.slice(0, index).every((previousStage) => {
       const previousArtifactComplete = previousStage.requiredArtifacts.every((artifactId) => artifactMap[artifactId] && artifactMap[artifactId].exists);
@@ -468,9 +471,11 @@ function derivePipeline(product, artifacts, relatedSessions, handoffs, runs) {
       required_artifacts: stage.requiredArtifacts,
       status,
       active_run_id: activeRun ? activeRun.run_id : '',
+      latest_run_id: (activeRun || completedRun) ? (activeRun || completedRun).run_id : '',
       active_session_id: activeSession ? activeSession.id : '',
       active_session_name: activeSession ? activeSession.name : '',
       latest_handoff: relevantHandoff,
+      latest_completion: latestCompletion,
       latest_incoming_handoff: latestIncomingHandoff,
       artifacts_complete: artifactsComplete
     };
@@ -510,11 +515,14 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
   const firstReady = pipeline.find((step) => step.status === 'ready');
   if (firstReady && (!currentRun || currentRun.stage_id !== firstReady.stage_id || (currentRun.status !== 'active' && currentRun.status !== 'in-progress'))) {
     const previousHandoff = getLatestIncomingHandoff([firstReady.latest_incoming_handoff].filter(Boolean), firstReady.stage_id) || null;
+    const previousStageLabel = previousHandoff?.from_stage
+      ? String(previousHandoff.from_stage).replace(/(^\w)/, (c) => c.toUpperCase())
+      : '';
     const startAction = {
       id: `start:${firstReady.stage_id}`,
       action_type: 'start-run',
       step_id: firstReady.stage_id,
-      label: `Start ${firstReady.label} run`,
+      label: previousStageLabel ? `Start ${firstReady.label} from ${previousStageLabel} completion` : `Start ${firstReady.label} run`,
       reason: `This is the next delivery step recommended by the current artifact state.`,
       priority: 'medium',
       objective: firstReady.goal,
@@ -537,11 +545,14 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
     const stageId = inferStepFromArtifact(missingCoreArtifact.id);
     const stage = pipeline.find((item) => item.stage_id === stageId);
     const previousHandoff = stage ? getLatestIncomingHandoff([stage.latest_incoming_handoff].filter(Boolean), stageId) : null;
+    const previousStageLabel = previousHandoff?.from_stage
+      ? String(previousHandoff.from_stage).replace(/(^\w)/, (c) => c.toUpperCase())
+      : '';
     const artifactAction = {
       id: `artifact:${missingCoreArtifact.id}`,
       action_type: 'produce-output',
       step_id: stageId,
-      label: `Create ${missingCoreArtifact.label}`,
+      label: previousStageLabel ? `Create ${missingCoreArtifact.label} from ${previousStageLabel} completion` : `Create ${missingCoreArtifact.label}`,
       reason: 'A core product artifact is still missing.',
       priority: 'medium',
       objective: stage ? `Produce ${missingCoreArtifact.label} to move ${stage.label} forward.` : `Produce ${missingCoreArtifact.label}.`,
@@ -933,6 +944,7 @@ class ProductService {
         latest_handoff_stage: handoffs[0]?.to_stage || handoffs[0]?.from_stage || ''
       },
       latest_handoff: handoffs[0] || null,
+      latest_completion: handoffs[0] || null,
       next_actions: nextActions,
       related_sessions: relatedSessions.slice(0, 5),
       pipeline

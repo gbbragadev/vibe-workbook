@@ -971,6 +971,7 @@ test('product service uses latest incoming handoff to enrich next action continu
   const result = service.executeNextAction('p3', action.id, {}, store, workspaces, sessions);
 
   assert.equal(result.previous_handoff?.handoff_id, handoff.handoff_id);
+  assert.match(action.label, /Start Spec from Brief completion/);
   assert.match(created[0].promptSeed, /Previous handoff from: brief -> spec/);
   assert.match(created[0].promptSeed, /Handoff summary: Brief is ready for spec\./);
   assert.match(created[0].promptSeed, /Referenced outputs: artifact:brief/);
@@ -1053,7 +1054,55 @@ test('product service pipeline prioritizes runs and handoffs over artifact-only 
   assert.equal(brief.status, 'done');
   assert.equal(spec.status, 'in-progress');
   assert.equal(brief.latest_handoff?.handoff_id, handoff.handoff_id);
+  assert.equal(brief.latest_completion?.handoff_id, handoff.handoff_id);
+  assert.equal(spec.latest_incoming_handoff?.handoff_id, handoff.handoff_id);
   assert.ok(spec.active_run_id);
+});
+
+test('hydrated current run exposes primary session and conservative ready-to-complete signal', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'repo');
+  fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'docs', 'spec.md'), '# spec');
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'ready',
+        name: 'Ready Product',
+        slug: 'ready-product',
+        status: 'active',
+        stage: 'build',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-ready', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, { registryFile });
+  const created = [];
+  const store = {
+    createSession(payload) {
+      created.push(payload);
+      return { id: 'sess-ready', status: 'running', updatedAt: Date.now(), ...payload };
+    }
+  };
+
+  service.startStage('ready', 'spec', { runtimeAgent: 'claude' }, store);
+  const detail = service.getProductDetail('ready', [{ id: 'ws-ready', name: 'Workspace Ready' }], [
+    { id: 'sess-ready', name: created[0].name, workspaceId: 'ws-ready', status: 'running', agent: 'claude', stageId: 'spec', role: 'delivery-planner', workingDir: repoDir, updatedAt: Date.now(), productId: 'ready', runId: created[0].runId }
+  ]);
+
+  assert.ok(detail.current_run);
+  assert.equal(detail.current_run.primary_session_id, 'sess-ready');
+  assert.equal(detail.current_run.is_ready_to_complete, true);
 });
 
 test('getHandoffs returns enriched records with snapshots and knowledge driver metadata', () => {

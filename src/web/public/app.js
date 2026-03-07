@@ -494,7 +494,7 @@
       '</div></div><div class="product-detail-scroll">' +
       '<section class="detail-panel"><div class="panel-header"><h3>Operational Summary</h3><span class="status-pill ' + esc((detail.workspace || {}).path_status || 'unknown') + '">' + esc((detail.workspace || {}).path_status || 'unknown') + '</span></div><div class="panel-body"><div class="meta-list">' +
       metaItem('Owner', detail.owner) + metaItem('Status', detail.status) + metaItem('Runtime Workspace', ((detail.workspace || {}).linked_workspace_name || (detail.workspace || {}).runtime_workspace_id || 'none')) + metaItem('Repo', ((detail.repo || {}).local_path || 'unknown')) + metaItem('Knowledge Packs', String(((detail.knowledge_packs || []).length))) + metaItem('Current Stage', detail.current_stage_id || detail.computed_stage_signal || 'idea') + metaItem('Tracked Runs', String(((detail.runs || []).length))) + metaItem('Handoffs', String(((detail.handoffs || []).length))) +
-      '</div>' + (latestHandoff ? '<div class="summary-callout"><span class="meta-item-label">Latest handoff</span>' + buildHandoffSummaryInline(latestHandoff) + '</div>' : '') + '</div></section>' +
+      '</div>' + (latestHandoff ? '<div class="summary-callout"><span class="meta-item-label">Latest completion</span>' + buildHandoffSummaryInline(latestHandoff) + '</div>' : '') + '</div></section>' +
       '<section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + buildCurrentRunPanel(detail, currentRun) + '</div></section>' +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Pipeline</h3><span class="artifact-row-meta">' + detail.pipeline.length + ' stages</span></div><div class="panel-body"><div class="pipeline-list">' + detail.pipeline.map(step => buildStepCard(step)).join('') + '</div></div></section>' +
       '<section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => '<div class="artifact-row"><div class="product-row"><h4>' + esc(artifact.label) + '</h4><span class="artifact-chip ' + (artifact.exists ? 'exists' : 'missing') + '">' + (artifact.exists ? 'present' : 'missing') + '</span></div><div class="artifact-row-meta mono" style="margin-top:8px">' + esc(artifact.path || 'No path configured') + '</div></div>').join('') + '</div></div></section></div>' +
@@ -502,14 +502,15 @@
       '<section class="detail-panel"><div class="panel-header"><h3>Stage Knowledge</h3><span class="artifact-row-meta">current: ' + esc(detail.current_stage_id || detail.computed_stage_signal || 'idea') + '</span></div><div class="panel-body">' + buildStageKnowledgePanel(detail) + '</div></section></div>' +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Next Actions</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + ((detail.next_actions || []).map(action => buildNextActionRow(action, detail)).join('') || '<p>No next actions available.</p>') + '</div></div></section>' +
       '<section class="detail-panel"><div class="panel-header"><h3>Related Sessions</h3><span class="artifact-row-meta">' + ((detail.related_sessions || []).length) + ' linked</span></div><div class="panel-body"><div class="session-list">' + ((detail.related_sessions || []).map(session => buildProductSessionRow(session)).join('') || '<p>No linked sessions yet.</p>') + '</div></div></section></div>' +
-      '<section class="detail-panel"><div class="panel-header"><h3>Handoff History</h3><span class="artifact-row-meta">' + ((detail.handoffs || []).length) + ' records</span></div><div class="panel-body">' + buildHandoffHistoryPanel(detail) + '</div></section></div>';
+      '<section class="detail-panel"><div class="panel-header"><h3>Stage Completions</h3><span class="artifact-row-meta">' + ((detail.handoffs || []).length) + ' records</span></div><div class="panel-body">' + buildHandoffHistoryPanel(detail) + '</div></section></div>';
   }
 
   function buildStepCard(step) {
     return '<article class="step-card"><div class="step-card-top"><div><h4>' + esc(step.label) + '</h4><div class="step-card-meta"><span class="status-pill ' + esc(step.status) + '">' + esc(stageStatusLabel(step.status)) + '</span><span class="chip">' + esc(step.recommended_role) + '</span><span class="chip">' + esc(step.recommended_runtime_agent) + '</span></div></div></div><div class="step-card-goal">' + esc(step.goal) + '</div>' +
       (step.active_run_id ? '<div class="action-row-meta"><span class="meta-item-label">Active run</span><div class="chip-row"><span class="chip subtle">' + esc(step.active_run_id) + '</span></div></div>' : '') +
-      (step.latest_handoff ? '<div class="action-row-meta"><span class="meta-item-label">Latest handoff</span>' + buildHandoffSummaryInline(step.latest_handoff) + '</div>' : '') +
-      '<div class="step-card-actions"><button class="btn btn-sm btn-primary" data-stage-action="start" data-stage-id="' + step.stage_id + '">Start Step</button>' + (step.active_session_id ? '<button class="btn btn-sm" data-stage-action="open-session" data-session-id="' + step.active_session_id + '">Open Session</button>' : '') + (step.stage_id !== 'idea' ? '<button class="btn btn-sm" data-stage-action="handoff" data-stage-id="' + step.stage_id + '">Register Handoff</button>' : '') + '</div></article>';
+      (step.latest_completion ? '<div class="action-row-meta"><span class="meta-item-label">Latest completion</span>' + buildHandoffSummaryInline(step.latest_completion) + '</div>' : '') +
+      (step.latest_incoming_handoff ? '<div class="action-row-meta"><span class="meta-item-label">Incoming context</span>' + buildHandoffSummaryInline(step.latest_incoming_handoff) + '</div>' : '') +
+      '<div class="step-card-actions"><button class="btn btn-sm btn-primary" data-stage-action="start" data-stage-id="' + step.stage_id + '">Start Step</button>' + (step.active_session_id ? '<button class="btn btn-sm" data-stage-action="open-session" data-session-id="' + step.active_session_id + '">Open Session</button>' : '') + (step.stage_id !== 'idea' ? '<button class="btn btn-sm" data-stage-action="complete" data-stage-id="' + step.stage_id + '">Complete Stage</button>' : '') + '</div></article>';
   }
 
   function buildNextActionRow(action, detail) {
@@ -526,7 +527,7 @@
       (trace ? '<div class="action-row-trace">' + esc(trace) + '</div>' : '') +
       (knowledge ? '<div class="action-row-meta"><span class="meta-item-label">Knowledge preset</span>' + buildKnowledgeDriverInline(knowledge) + '</div>' : '') +
       (action.uses_previous_handoff && action.previous_handoff_summary
-        ? '<div class="action-row-meta"><span class="meta-item-label">Previous handoff</span><div class="artifact-row-meta">' + esc(action.previous_handoff_summary) + '</div><div class="chip-row" style="margin-top:6px"><span class="chip knowledge">uses previous handoff</span>' + (action.previous_handoff_id ? '<span class="chip subtle">' + esc(action.previous_handoff_id) + '</span>' : '') + '</div></div>'
+        ? '<div class="action-row-meta"><span class="meta-item-label">Previous stage completion</span><div class="artifact-row-meta">' + esc(action.previous_handoff_summary) + '</div><div class="chip-row" style="margin-top:6px"><span class="chip knowledge">uses previous stage completion</span>' + (action.previous_handoff_id ? '<span class="chip subtle">' + esc(action.previous_handoff_id) + '</span>' : '') + '</div></div>'
         : '') +
       (outputs.length ? '<div class="action-row-meta"><span class="meta-item-label">Expected outputs</span><div class="chip-row">' + outputs.map(item => '<span class="chip">' + esc(item) + '</span>').join('') + '</div></div>' : '') +
       '</div>' +
@@ -624,9 +625,10 @@
       step_id: el.dataset.stageId
     })));
     root.querySelectorAll('[data-product-action="start-stage"], [data-stage-action="start"]').forEach(el => el.addEventListener('click', () => startGuidedStage(detail.product_id, el.dataset.stageId)));
-    root.querySelectorAll('[data-stage-action="handoff"]').forEach(el => el.addEventListener('click', () => registerHandoff(detail.product_id, el.dataset.stageId)));
+    root.querySelectorAll('[data-stage-action="complete"]').forEach(el => el.addEventListener('click', () => registerHandoff(detail.product_id, el.dataset.stageId)));
     root.querySelectorAll('[data-stage-action="open-session"]').forEach(el => el.addEventListener('click', () => openSessionInTerminals(el.dataset.sessionId, detail.product_id)));
     root.querySelectorAll('[data-run-action="open-session"]').forEach(el => el.addEventListener('click', () => openSessionInTerminals(el.dataset.sessionId, detail.product_id)));
+    root.querySelectorAll('[data-run-action="complete-stage"]').forEach(el => el.addEventListener('click', () => registerHandoff(detail.product_id, el.dataset.stageId)));
     root.querySelectorAll('[data-run-action="start-session"]').forEach(el => el.addEventListener('click', () => startSession(el.dataset.sessionId)));
     root.querySelectorAll('[data-run-action="restart-session"]').forEach(el => el.addEventListener('click', () => restartSession(el.dataset.sessionId)));
     root.querySelectorAll('[data-session-action="start"]').forEach(el => el.addEventListener('click', () => startSession(el.dataset.sessionId)));
@@ -698,7 +700,7 @@
       ? '<div class="dialog-knowledge-block"><div class="meta-item-label">Knowledge preset</div>' + buildKnowledgeDriverInline(defaultPreset) + '<div class="artifact-row-meta" style="margin-top:8px">Default execution guidance for this stage.</div></div>'
       : '<div class="dialog-knowledge-block"><div class="meta-item-label">Knowledge preset</div><div class="artifact-row-meta">No active preset for this stage.</div></div>';
     const handoffBlock = latestIncomingHandoff
-      ? '<div class="dialog-knowledge-block"><div class="meta-item-label">Incoming handoff</div><div class="handoff-summary">' + esc(latestIncomingHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((latestIncomingHandoff.from_stage || 'unknown') + ' -> ' + (latestIncomingHandoff.to_stage || stageId)) + '</div><div class="action-row-meta"><span class="meta-item-label">Referenced outputs</span>' + buildOutputReferenceChips((latestIncomingHandoff.output_refs || []).map(item => ({ label: item })), 'No outputs referenced.') + '</div></div>'
+      ? '<div class="dialog-knowledge-block"><div class="meta-item-label">Previous stage completion</div><div class="handoff-summary">' + esc(latestIncomingHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((latestIncomingHandoff.from_stage || 'unknown') + ' -> ' + (latestIncomingHandoff.to_stage || stageId)) + '</div><div class="action-row-meta"><span class="meta-item-label">Referenced outputs</span>' + buildOutputReferenceChips((latestIncomingHandoff.output_refs || []).map(item => ({ label: item })), 'No outputs referenced.') + '</div></div>'
       : '';
     const presetOptions = uniqueStagePresets.map((item, index) => '<option value="' + esc(JSON.stringify({
       knowledge_pack_id: item.knowledge_pack_id || '',
@@ -808,11 +810,12 @@
     const linkedRunId = currentRun && (currentRun.stage_id === fromStage) ? (currentRun.run_id || currentRun.id || '') : '';
     const linkedRun = linkedRunId ? currentRun : null;
     const nextStage = STAGE_ORDER[Math.min(STAGE_ORDER.indexOf(fromStage) + 1, STAGE_ORDER.length - 1)];
-    const defaultSessionId = linkedRun && Array.isArray(linkedRun.linked_sessions) && linkedRun.linked_sessions.length
-      ? (linkedRun.linked_sessions[0].id || '')
-      : '';
+    const primarySession = pickPrimaryRunSession(linkedRun, detail);
+    const defaultSessionId = primarySession ? (primarySession.id || '') : '';
     const currentKnowledge = linkedRun ? resolveRunKnowledge(linkedRun, detail) : null;
-    const outputChecks = buildOutputChecklist(linkedRun ? (linkedRun.produced_outputs || []) : [], 'handoff-output', [], 'data-handoff-output-ref');
+    const suggestedOutputs = pickCarryForwardOutputs(linkedRun);
+    const selectedOutputRefs = suggestedOutputs.map(item => item.output_id || item.ref_id).filter(Boolean);
+    const outputChecks = buildOutputChecklist(linkedRun ? (linkedRun.produced_outputs || []) : [], 'handoff-output', selectedOutputRefs, 'data-handoff-output-ref');
     const artifactChecks = buildOutputChecklist((detail.artifacts || []).filter(item => item.exists).map(item => ({
       output_id: item.id,
       type: 'artifact',
@@ -820,12 +823,29 @@
       label: item.label
     })), 'handoff-artifact', [], 'data-handoff-artifact-ref');
     const expectedSnapshot = buildOutputReferenceChips(linkedRun ? (linkedRun.expected_outputs || []) : [], 'No expected outputs declared for this run.');
+    const summaryDraft = buildCompletionDraft(detail, linkedRun, fromStage, nextStage, primarySession);
     const runContext = linkedRun
-      ? '<div class="dialog-knowledge-block"><div class="meta-item-label">Current run context</div><div class="mono" style="margin-top:4px">' + esc(linkedRun.run_id || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc(linkedRun.objective || 'No run objective registered.') + '</div>' + (currentKnowledge ? '<div style="margin-top:10px">' + buildKnowledgeDriverInline(currentKnowledge) + '</div>' : '') + '</div>'
-      : '<div class="dialog-knowledge-block"><div class="meta-item-label">Current run context</div><div class="artifact-row-meta">No active run is linked to this stage right now. This handoff will still be saved manually.</div></div>';
-    showDialog('Register Handoff', runContext + '<label>From Stage</label><input type="text" value="' + esc(fromStage) + '" disabled><label>To Stage</label><select id="dlg-handoff-to">' + STAGE_ORDER.filter(stage => stage !== 'idea').map(stage => '<option value="' + stage + '"' + (stage === nextStage ? ' selected' : '') + '>' + esc(stage) + '</option>').join('') + '</select><label>Role</label><input type="text" id="dlg-handoff-role" value="' + esc((linkedRun && linkedRun.role) || 'delivery-handoff') + '"><label>Runtime Agent</label><select id="dlg-handoff-agent">' + buildAgentOptions((linkedRun && linkedRun.suggested_runtime_agent) || 'claude', Object.keys(AGENT_META)) + '</select><label>Session ID (optional)</label><input type="text" id="dlg-handoff-session" placeholder="sess-..." value="' + esc(defaultSessionId) + '"><label>Summary</label><textarea id="dlg-handoff-summary" placeholder="What was completed, what remains, and what the next stage should do."></textarea><label>Produced outputs to carry forward</label>' + outputChecks + '<label style="margin-top:10px">Artifact refs</label>' + artifactChecks + '<label style="margin-top:10px">Expected output snapshot</label>' + expectedSnapshot, [
+      ? '<section class="dialog-section"><div class="dialog-section-title">Execution Context</div><div class="dialog-knowledge-block"><div class="meta-list">' +
+        metaItem('Stage', fromStage) +
+        metaItem('Run', linkedRun.run_id || '') +
+        metaItem('Primary Session', defaultSessionId || 'none') +
+        metaItem('Runtime', (linkedRun.suggested_runtime_agent || 'unknown-agent')) +
+        '</div><div class="artifact-row-meta" style="margin-top:10px">' + esc(linkedRun.objective || 'No run objective registered.') + '</div>' +
+        (currentKnowledge ? '<div style="margin-top:10px">' + buildKnowledgeDriverInline(currentKnowledge) + '</div>' : '') +
+        '</div></section>'
+      : '<section class="dialog-section"><div class="dialog-section-title">Execution Context</div><div class="dialog-knowledge-block"><div class="artifact-row-meta">No active run is linked to this stage right now. This completion will still be saved manually.</div></div></section>';
+    showDialog('Complete Stage', runContext +
+      '<section class="dialog-section"><div class="dialog-section-title">Suggested Handoff</div>' +
+      '<label>From Stage</label><input type="text" value="' + esc(fromStage) + '" disabled>' +
+      '<label>To Stage</label><select id="dlg-handoff-to">' + STAGE_ORDER.filter(stage => stage !== 'idea').map(stage => '<option value="' + stage + '"' + (stage === nextStage ? ' selected' : '') + '>' + esc(stage) + '</option>').join('') + '</select>' +
+      '<label>Role</label><input type="text" id="dlg-handoff-role" value="' + esc((linkedRun && linkedRun.role) || 'delivery-handoff') + '">' +
+      '<label>Runtime Agent</label><select id="dlg-handoff-agent">' + buildAgentOptions((linkedRun && linkedRun.suggested_runtime_agent) || 'claude', Object.keys(AGENT_META)) + '</select>' +
+      '<label>Linked Session ID (optional)</label><input type="text" id="dlg-handoff-session" placeholder="sess-..." value="' + esc(defaultSessionId) + '">' +
+      '<label>Summary</label><textarea id="dlg-handoff-summary" placeholder="Review and adjust the suggested completion summary.">' + esc(summaryDraft) + '</textarea>' +
+      '</section>' +
+      '<section class="dialog-section"><div class="dialog-section-title">Carry Forward</div><label>Produced outputs to carry forward</label>' + outputChecks + '<label style="margin-top:10px">Artifact refs</label>' + artifactChecks + '<label style="margin-top:10px">Expected output snapshot</label><div class="dialog-knowledge-block compact">' + expectedSnapshot + '</div></section>', [
       { label: 'Cancel', onClick: function() {} },
-      { label: 'Save Handoff', primary: true, onClick: async function() {
+      { label: 'Complete Stage', primary: true, onClick: async function() {
         await api('/products/' + encodeURIComponent(productId) + '/handoffs', {
           method: 'POST',
           body: JSON.stringify({
@@ -1174,6 +1194,43 @@
     }).join('') + '</div>';
   }
 
+  function pickPrimaryRunSession(run, detail) {
+    if (!run) return null;
+    const runSessions = resolveRunSessions(run, detail);
+    if (!runSessions.length) return null;
+    const primaryId = run.primary_session_id || run.current_session_id || '';
+    return runSessions.find(item => item.id === primaryId) || runSessions[0];
+  }
+
+  function pickCarryForwardOutputs(run) {
+    const produced = normalizeOutputRecords(run && run.produced_outputs);
+    const preferred = produced.filter(item => !['knowledge-driver', 'action', 'handoff'].includes(String(item.type || '').toLowerCase()));
+    const base = preferred.length ? preferred : produced;
+    const seen = new Set();
+    return base.filter(item => {
+      const key = [item.type || '', item.ref_id || item.output_id || '', item.label || ''].join('::');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function buildCompletionDraft(detail, run, fromStage, toStage, primarySession) {
+    const productName = detail && detail.name ? detail.name : 'this product';
+    const producedOutputs = pickCarryForwardOutputs(run).map(item => item.label).filter(Boolean);
+    const objective = run && run.objective ? run.objective : '';
+    const knowledge = resolveRunKnowledge(run, detail);
+    const parts = [
+      `Stage ${fromStage} executed for product ${productName}.`,
+      objective ? `Objective covered: ${objective}.` : '',
+      producedOutputs.length ? `Produced outputs: ${producedOutputs.join(', ')}.` : 'Produced outputs still need confirmation by the operator.',
+      primarySession ? `Primary execution session: ${primarySession.name} (${primarySession.id}).` : '',
+      knowledge ? `Execution guidance used: ${knowledge.knowledge_pack_name} ${knowledge.preset_label || knowledge.preset_id}.` : '',
+      `Next stage should continue in ${toStage} with the outputs and context carried forward from ${fromStage}.`
+    ].filter(Boolean);
+    return parts.join(' ');
+  }
+
   function getCheckedValues(selector, attrName) {
     const attribute = attrName || 'data-handoff-output-ref';
     return Array.from(document.querySelectorAll(selector))
@@ -1330,7 +1387,7 @@
 
   function buildHandoffHistoryPanel(detail) {
     const handoffs = Array.isArray(detail && detail.handoffs) ? detail.handoffs : [];
-    if (!handoffs.length) return '<p>No handoffs recorded yet.</p>';
+    if (!handoffs.length) return '<p>No stage completions recorded yet.</p>';
     const currentRun = resolveCurrentRun(detail);
     const currentRunId = currentRun ? (currentRun.run_id || currentRun.id || '') : '';
     return '<div class="handoff-list">' + handoffs.map(handoff => {
@@ -1367,6 +1424,7 @@
     const knowledge = resolveRunKnowledge(run, detail);
     const latestHandoff = run.latest_handoff || ((run.linked_handoffs || [])[0]) || null;
     const incomingHandoff = Array.isArray(run.incoming_handoffs) && run.incoming_handoffs.length ? run.incoming_handoffs[0] : null;
+    const primarySession = pickPrimaryRunSession(run, detail);
     const completion = run.completion_summary || {
       expected_total: expectedOutputs.length,
       produced_total: producedOutputs.length,
@@ -1380,12 +1438,14 @@
     return '<div class="run-shell">' +
       '<div class="run-status-row"><div><div class="run-kicker">Run</div><div class="run-id mono">' + esc(runId) + '</div></div><div class="chip-row"><span class="status-pill ' + esc(run.status || 'in-progress') + '">' + esc(stageStatusLabel(run.status || 'in-progress')) + '</span><span class="chip">' + esc(stageId) + '</span><span class="chip">' + esc(role) + '</span><span class="chip">' + esc(runtimeAgent) + '</span></div></div>' +
       '<div class="run-objective">' + esc(run.objective || 'No run objective registered yet.') + '</div>' +
+      (run.is_ready_to_complete ? '<div class="summary-callout success"><span class="meta-item-label">Ready to complete</span><div class="artifact-row-meta">This run has linked execution context and produced outputs that can be carried into the next stage.</div></div>' : '') +
       (knowledge ? '<div class="run-card"><span class="meta-item-label">Knowledge Driver</span>' + buildKnowledgeDriverInline(knowledge) + '<div class="artifact-row-meta" style="margin-top:8px">This execution was started from a curated preset.</div></div>' : '') +
-      (incomingHandoff ? '<div class="run-card"><span class="meta-item-label">Incoming Handoff</span><div class="handoff-summary">' + esc(incomingHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((incomingHandoff.from_stage || 'unknown') + ' -> ' + (incomingHandoff.to_stage || stageId)) + '</div>' + buildOutputReferenceChips((incomingHandoff.output_refs || []).map(item => ({ label: item })), 'No outputs referenced from the previous stage.') + '</div>' : '') +
+      (incomingHandoff ? '<div class="run-card"><span class="meta-item-label">Incoming Context</span><div class="handoff-summary">' + esc(incomingHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((incomingHandoff.from_stage || 'unknown') + ' -> ' + (incomingHandoff.to_stage || stageId)) + '</div>' + buildOutputReferenceChips((incomingHandoff.output_refs || []).map(item => ({ label: item })), 'No outputs referenced from the previous stage.') + '</div>' : '') +
       '<div class="meta-list run-meta-list">' +
       metaItem('Product', detail.name) +
       metaItem('Stage', stageId) +
       metaItem('Runtime Workspace', workspaceName) +
+      metaItem('Primary Session', primarySession ? primarySession.id : 'none') +
       metaItem('Linked Sessions', String(runSessions.length)) +
       metaItem('Handoffs', String(handoffCount)) +
       metaItem('Required Outputs', String(completion.required_produced_total || 0) + '/' + String(completion.required_expected_total || 0)) +
@@ -1396,12 +1456,14 @@
         '<div class="run-card"><span class="meta-item-label">Expected Outputs</span>' + buildRunOutputList(expectedOutputs, 'No expected outputs declared.') + '</div>' +
         '<div class="run-card"><span class="meta-item-label">Produced Outputs</span>' + buildRunOutputList(producedOutputs, 'No outputs registered yet.') + '</div>' +
       '</div>' +
-      (latestHandoff ? '<div class="run-card"><div class="product-row"><span class="meta-item-label">Latest Handoff</span><span class="artifact-row-meta">' + esc(formatDateTime(latestHandoff.created_at)) + '</span></div><div class="handoff-summary">' + esc(latestHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((latestHandoff.from_stage || stageId) + ' -> ' + (latestHandoff.to_stage || 'unknown')) + '</div>' + ((run.next_stage_hint || latestHandoff.to_stage) ? '<div class="artifact-row-meta" style="margin-top:6px">Next stage hint: ' + esc(run.next_stage_hint || latestHandoff.to_stage) + '</div>' : '') + '</div>' : '') +
+      (latestHandoff ? '<div class="run-card"><div class="product-row"><span class="meta-item-label">Latest Completion</span><span class="artifact-row-meta">' + esc(formatDateTime(latestHandoff.created_at)) + '</span></div><div class="handoff-summary">' + esc(latestHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((latestHandoff.from_stage || stageId) + ' -> ' + (latestHandoff.to_stage || 'unknown')) + '</div>' + ((run.next_stage_hint || latestHandoff.to_stage) ? '<div class="artifact-row-meta" style="margin-top:6px">Next stage hint: ' + esc(run.next_stage_hint || latestHandoff.to_stage) + '</div>' : '') + '</div>' : '') +
       '<div class="run-card" style="margin-top:12px"><div class="product-row"><span class="meta-item-label">Run Sessions</span><span class="artifact-row-meta">' + esc(String(runSessions.length)) + ' linked</span></div>' +
       (runSessions.length
         ? '<div class="run-session-list">' + runSessions.map(session => '<div class="run-session-row"><div><strong>' + esc(session.name) + '</strong><div class="artifact-row-meta">' + esc((session.agent || 'agent') + ' | ' + (session.status || 'unknown')) + '</div></div><div class="chip-row"><button class="btn btn-sm" data-run-action="open-session" data-session-id="' + esc(session.id) + '">Open</button>' + (session.status === 'running' ? '<button class="btn btn-sm" data-run-action="restart-session" data-session-id="' + esc(session.id) + '">Restart</button>' : '<button class="btn btn-sm btn-primary" data-run-action="start-session" data-session-id="' + esc(session.id) + '">Start</button>') + '</div></div>').join('') + '</div>'
         : '<p class="empty-subtext" style="margin-top:8px">This run has no linked sessions yet. Executing the next action or starting the current stage will attach the first executor session.</p>') +
-      '</div></div>';
+      '</div>' +
+      (stageId !== 'idea' ? '<div class="step-card-actions run-primary-actions"><button class="btn btn-primary" data-run-action="complete-stage" data-stage-id="' + esc(stageId) + '">Complete Current Stage</button></div>' : '') +
+      '</div>';
   }
 
   function buildRunOutputList(items, emptyText) {
@@ -1866,8 +1928,15 @@
   }
 
   // ============ ACTIONS ============
-  function newWorkspace() {
-    showDialog('New Runtime Workspace', '<label>Workspace Name</label><input type="text" id="dlg-ws-name" placeholder="ZapCam Runtime"><label>Description</label><input type="text" id="dlg-ws-desc" placeholder="Optional execution context description"><label>Working Directory</label><div style="display:flex;gap:6px"><input type="text" id="dlg-ws-dir" placeholder="C:\\Projects\\my-app" style="flex:1"><button class="btn btn-sm" id="dlg-ws-browse" type="button">&#128193;</button></div><label>Color</label><input type="color" id="dlg-ws-color" value="#6366f1" style="height:36px;padding:2px">', [
+  function newWorkspace(draft) {
+    const state = Object.assign({
+      name: '',
+      description: '',
+      workingDir: '',
+      color: '#6366f1'
+    }, draft || {});
+
+    showDialog('New Runtime Workspace', '<label>Workspace Name</label><input type="text" id="dlg-ws-name" placeholder="ZapCam Runtime" value="' + esc(state.name) + '"><label>Description</label><input type="text" id="dlg-ws-desc" placeholder="Optional execution context description" value="' + esc(state.description) + '"><label>Working Directory</label><div style="display:flex;gap:6px"><input type="text" id="dlg-ws-dir" placeholder="C:\\Projects\\my-app" value="' + esc(state.workingDir) + '" style="flex:1"><button class="btn btn-sm" id="dlg-ws-browse" type="button">&#128193;</button></div><label>Color</label><input type="color" id="dlg-ws-color" value="' + esc(state.color) + '" style="height:36px;padding:2px">', [
       { label: 'Cancel', onClick: function() {} },
       { label: 'Create', primary: true, onClick: async function() {
         var name = document.getElementById('dlg-ws-name').value.trim();
@@ -1889,46 +1958,22 @@
       var browseBtn = document.getElementById('dlg-ws-browse');
       if (browseBtn) {
         browseBtn.addEventListener('click', async function() {
-          var currentDir = document.getElementById('dlg-ws-dir').value || 'C:\\Users';
+          var nextDraft = {
+            name: document.getElementById('dlg-ws-name').value,
+            description: document.getElementById('dlg-ws-desc').value,
+            workingDir: document.getElementById('dlg-ws-dir').value,
+            color: document.getElementById('dlg-ws-color').value
+          };
+          var currentDir = nextDraft.workingDir || 'C:\\Users';
           try {
             var data = await api('/browse?path=' + encodeURIComponent(currentDir));
-            var origTitle = document.getElementById('dialog-title').textContent;
-            var origBody = document.getElementById('dialog-body').innerHTML;
-
             showDirBrowser(data, function(selectedPath) {
-              document.getElementById('dialog-title').textContent = origTitle;
-              document.getElementById('dialog-body').innerHTML = origBody;
-              document.getElementById('dlg-ws-dir').value = selectedPath;
-              // Re-bind create button
-              var actionsEl = document.getElementById('dialog-actions');
-              actionsEl.innerHTML = '';
-              var cancelBtn = document.createElement('button');
-              cancelBtn.className = 'btn';
-              cancelBtn.textContent = 'Cancel';
-              cancelBtn.addEventListener('click', hideDialog);
-              var createBtn = document.createElement('button');
-              createBtn.className = 'btn btn-primary';
-              createBtn.textContent = 'Create';
-              createBtn.addEventListener('click', async function() {
-                hideDialog();
-                var n = document.getElementById('dlg-ws-name').value.trim();
-                if (!n) return;
-                await api('/workspaces', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    name: n,
-                    description: document.getElementById('dlg-ws-desc').value,
-                    workingDir: document.getElementById('dlg-ws-dir').value,
-                    color: document.getElementById('dlg-ws-color').value
-                  })
-                });
-                await loadData();
+              newWorkspace({
+                name: nextDraft.name,
+                description: nextDraft.description,
+                workingDir: selectedPath,
+                color: nextDraft.color
               });
-              actionsEl.appendChild(cancelBtn);
-              actionsEl.appendChild(createBtn);
-              // Re-bind browse
-              var nb = document.getElementById('dlg-ws-browse');
-              if (nb) nb.addEventListener('click', browseBtn._handler || function() {});
             });
           } catch (e) { console.error(e); }
         });
@@ -1936,11 +1981,17 @@
     }, 50);
   }
 
-  function editWorkspace(workspaceId) {
+  function editWorkspace(workspaceId, draft) {
     const ws = workspaces.find(w => w.id === workspaceId);
     if (!ws) return;
+    const state = Object.assign({
+      name: ws.name,
+      description: ws.description || '',
+      workingDir: ws.workingDir || '',
+      color: ws.color || '#6366f1'
+    }, draft || {});
 
-    showDialog('Edit Runtime Workspace', '<label>Workspace Name</label><input type="text" id="dlg-edit-ws-name" value="' + esc(ws.name) + '"><label>Description</label><input type="text" id="dlg-edit-ws-desc" value="' + esc(ws.description || '') + '"><label>Working Directory</label><div style="display:flex;gap:6px"><input type="text" id="dlg-edit-ws-dir" value="' + esc(ws.workingDir || '') + '" style="flex:1"><button class="btn btn-sm" id="dlg-edit-ws-browse" type="button">&#128193;</button></div><label>Color</label><input type="color" id="dlg-edit-ws-color" value="' + esc(ws.color || '#6366f1') + '" style="height:36px;padding:2px">', [
+    showDialog('Edit Runtime Workspace', '<label>Workspace Name</label><input type="text" id="dlg-edit-ws-name" value="' + esc(state.name) + '"><label>Description</label><input type="text" id="dlg-edit-ws-desc" value="' + esc(state.description) + '"><label>Working Directory</label><div style="display:flex;gap:6px"><input type="text" id="dlg-edit-ws-dir" value="' + esc(state.workingDir) + '" style="flex:1"><button class="btn btn-sm" id="dlg-edit-ws-browse" type="button">&#128193;</button></div><label>Color</label><input type="color" id="dlg-edit-ws-color" value="' + esc(state.color) + '" style="height:36px;padding:2px">', [
       { label: 'Cancel', onClick: function() {} },
       { label: 'Save', primary: true, onClick: async function() {
         const name = document.getElementById('dlg-edit-ws-name').value.trim();
@@ -1966,15 +2017,22 @@
       var browseBtn = document.getElementById('dlg-edit-ws-browse');
       if (browseBtn) {
         browseBtn.addEventListener('click', async function() {
-          var currentDir = document.getElementById('dlg-edit-ws-dir').value || 'C:\\Users';
+          var nextDraft = {
+            name: document.getElementById('dlg-edit-ws-name').value,
+            description: document.getElementById('dlg-edit-ws-desc').value,
+            workingDir: document.getElementById('dlg-edit-ws-dir').value,
+            color: document.getElementById('dlg-edit-ws-color').value
+          };
+          var currentDir = nextDraft.workingDir || 'C:\\Users';
           try {
             var data = await api('/browse?path=' + encodeURIComponent(currentDir));
-            var origTitle = document.getElementById('dialog-title').textContent;
-            var origBody = document.getElementById('dialog-body').innerHTML;
             showDirBrowser(data, function(selectedPath) {
-              document.getElementById('dialog-title').textContent = origTitle;
-              document.getElementById('dialog-body').innerHTML = origBody;
-              document.getElementById('dlg-edit-ws-dir').value = selectedPath;
+              editWorkspace(workspaceId, {
+                name: nextDraft.name,
+                description: nextDraft.description,
+                workingDir: selectedPath,
+                color: nextDraft.color
+              });
             });
           } catch (e) { console.error(e); }
         });

@@ -127,6 +127,11 @@ function buildCompletionSummary(expectedOutputs, producedOutputs) {
   };
 }
 
+function isMeaningfulProducedOutput(item) {
+  const type = String(item?.type || '').toLowerCase();
+  return !!type && !['session', 'knowledge-driver', 'action'].includes(type);
+}
+
 class RunCoordinatorService {
   constructor(opts = {}) {
     this.runsFile = opts.runsFile || RUNS_FILE;
@@ -338,6 +343,17 @@ class RunCoordinatorService {
     const sortedProducedOutputs = producedOutputs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
     const completionSummary = buildCompletionSummary(expectedOutputs, sortedProducedOutputs);
     const latestHandoff = linkedHandoffs[0] || null;
+    const primarySessionId = run.current_session_id
+      || (linkedSessions[0]?.id || '')
+      || ((run.session_ids || [])[0] || '');
+    const meaningfulProducedOutputs = sortedProducedOutputs.filter(isMeaningfulProducedOutput);
+    const isReadyToComplete = ['active', 'in-progress'].includes(run.status)
+      && !!primarySessionId
+      && (
+        meaningfulProducedOutputs.length > 0
+        || (completionSummary.required_expected_total > 0
+          && completionSummary.required_produced_total >= completionSummary.required_expected_total)
+      );
 
     return {
       ...run,
@@ -355,8 +371,11 @@ class RunCoordinatorService {
       linked_handoffs: linkedHandoffs,
       incoming_handoffs: incomingHandoffs,
       latest_handoff: latestHandoff,
+      latest_completion: latestHandoff,
       completion_summary: completionSummary,
       next_stage_hint: latestHandoff ? (latestHandoff.to_stage || '') : '',
+      primary_session_id: primarySessionId,
+      is_ready_to_complete: isReadyToComplete,
       expected_outputs: expectedOutputs,
       produced_outputs: sortedProducedOutputs
     };
