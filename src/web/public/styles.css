@@ -1005,6 +1005,44 @@ body {
   background: color-mix(in srgb, var(--success-tint) 78%, transparent);
 }
 
+.summary-callout.readiness-ready {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  background: color-mix(in srgb, var(--success-tint) 78%, transparent);
+}
+
+.summary-callout.readiness-needs-evidence {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+  background: color-mix(in srgb, var(--warning-tint) 78%, transparent);
+}
+
+.summary-callout.readiness-not-ready {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger-tint) 78%, transparent);
+}
+
+.readiness-signals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.readiness-signal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.readiness-signal-row.met {
+  color: var(--success);
+}
+
+.readiness-signal-row.unmet {
+  color: var(--warning);
+}
+
 .handoff-inline {
   display: flex;
   flex-direction: column;

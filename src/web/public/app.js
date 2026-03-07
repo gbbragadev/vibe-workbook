@@ -485,6 +485,43 @@
     }
   }
 
+  function buildReadinessPanel(detail) {
+    var readiness = detail.readiness;
+    if (!readiness) return '';
+    var releasePacket = detail.release_packet || {};
+    var statusClass = readiness.status === 'ready-for-release-candidate' ? 'readiness-ready' : readiness.status === 'needs-evidence' ? 'readiness-needs-evidence' : 'readiness-not-ready';
+    var signalsHtml = (readiness.signals || []).map(function(s) {
+      return '<div class="readiness-signal-row ' + (s.met ? 'met' : 'unmet') + '">' + (s.met ? '&#10003;' : '&#10007;') + ' ' + esc(s.label) + '</div>';
+    }).join('');
+    var gapsHtml = (readiness.gaps || []).length
+      ? '<div class="chip-row" style="margin-top:10px">' + readiness.gaps.map(function(g) { return '<span class="chip ' + (g.severity === 'required' ? 'warn' : 'subtle') + '">' + esc(g.label) + '</span>'; }).join('') + '</div>'
+      : '';
+    var keyArtifactsHtml = (releasePacket.key_artifacts || []).map(function(a) {
+      return '<span class="artifact-chip ' + (a.exists ? 'exists' : 'missing') + '">' + esc(a.label) + ': ' + (a.exists ? 'present' : 'missing') + '</span>';
+    }).join('');
+    return '<section class="detail-panel"><div class="panel-header"><h3>Release Readiness</h3><span class="status-pill ' + esc(statusClass) + '">' + esc(readiness.label) + '</span></div><div class="panel-body">' +
+      '<div class="summary-callout ' + statusClass + '"><strong>' + esc(readiness.label) + '</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + esc(readiness.summary || '') + '</p></div>' +
+      '<div class="readiness-signals">' + signalsHtml + '</div>' +
+      gapsHtml +
+      (keyArtifactsHtml ? '<div style="margin-top:12px"><span class="meta-item-label">Key Artifacts</span><div class="chip-row" style="margin-top:6px">' + keyArtifactsHtml + '</div></div>' : '') +
+      (releasePacket.next_release_step ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Release Step</span><p style="margin-top:6px;font-size:13px">' + esc(releasePacket.next_release_step) + '</p></div>' : '') +
+      '</div></section>';
+  }
+
+  function buildOperateLitePanel(detail) {
+    var op = detail.operate_lite;
+    if (!op) return '';
+    return '<section class="detail-panel"><div class="panel-header"><h3>Operate Lite</h3><span class="artifact-chip ' + (op.runbook_status === 'present' ? 'exists' : 'missing') + '">runbook: ' + esc(op.runbook_status) + '</span></div><div class="panel-body">' +
+      '<div class="meta-list">' +
+      metaItem('Runbook Status', op.runbook_status) +
+      metaItem('Runbook Path', op.runbook_path || 'N/A') +
+      metaItem('Last Readiness Check', op.last_readiness_check ? new Date(op.last_readiness_check).toLocaleString() : 'N/A') +
+      metaItem('Operational Notes', op.operational_notes || 'None') +
+      '</div>' +
+      (op.next_post_release_action ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Post-Release Action</span><p style="margin-top:6px;font-size:13px">' + esc(op.next_post_release_action) + '</p></div>' : '') +
+      '</div></section>';
+  }
+
   function buildProductDetailHtml(detail) {
     const currentRun = resolveCurrentRun(detail);
     const latestHandoff = resolveLatestHandoff(detail.handoffs || []);
@@ -496,13 +533,15 @@
       metaItem('Owner', detail.owner) + metaItem('Status', detail.status) + metaItem('Runtime Workspace', ((detail.workspace || {}).linked_workspace_name || (detail.workspace || {}).runtime_workspace_id || 'none')) + metaItem('Repo', ((detail.repo || {}).local_path || 'unknown')) + metaItem('Knowledge Packs', String(((detail.knowledge_packs || []).length))) + metaItem('Current Stage', detail.current_stage_id || detail.computed_stage_signal || 'idea') + metaItem('Tracked Runs', String(((detail.runs || []).length))) + metaItem('Handoffs', String(((detail.handoffs || []).length))) +
       '</div>' + (latestHandoff ? '<div class="summary-callout"><span class="meta-item-label">Latest completion</span>' + buildHandoffSummaryInline(latestHandoff) + '</div>' : '') + '</div></section>' +
       '<section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + buildCurrentRunPanel(detail, currentRun) + '</div></section>' +
+      buildReadinessPanel(detail) +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Pipeline</h3><span class="artifact-row-meta">' + detail.pipeline.length + ' stages</span></div><div class="panel-body"><div class="pipeline-list">' + detail.pipeline.map(step => buildStepCard(step)).join('') + '</div></div></section>' +
       '<section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => '<div class="artifact-row"><div class="product-row"><h4>' + esc(artifact.label) + '</h4><span class="artifact-chip ' + (artifact.exists ? 'exists' : 'missing') + '">' + (artifact.exists ? 'present' : 'missing') + '</span></div><div class="artifact-row-meta mono" style="margin-top:8px">' + esc(artifact.path || 'No path configured') + '</div></div>').join('') + '</div></div></section></div>' +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Knowledge Packs</h3><span class="artifact-row-meta">' + ((detail.knowledge_packs || []).length) + ' active</span></div><div class="panel-body">' + buildKnowledgePackPanel(detail) + '</div></section>' +
       '<section class="detail-panel"><div class="panel-header"><h3>Stage Knowledge</h3><span class="artifact-row-meta">current: ' + esc(detail.current_stage_id || detail.computed_stage_signal || 'idea') + '</span></div><div class="panel-body">' + buildStageKnowledgePanel(detail) + '</div></section></div>' +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Next Actions</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + ((detail.next_actions || []).map(action => buildNextActionRow(action, detail)).join('') || '<p>No next actions available.</p>') + '</div></div></section>' +
       '<section class="detail-panel"><div class="panel-header"><h3>Related Sessions</h3><span class="artifact-row-meta">' + ((detail.related_sessions || []).length) + ' linked</span></div><div class="panel-body"><div class="session-list">' + ((detail.related_sessions || []).map(session => buildProductSessionRow(session)).join('') || '<p>No linked sessions yet.</p>') + '</div></div></section></div>' +
-      '<section class="detail-panel"><div class="panel-header"><h3>Stage Completions</h3><span class="artifact-row-meta">' + ((detail.handoffs || []).length) + ' records</span></div><div class="panel-body">' + buildHandoffHistoryPanel(detail) + '</div></section></div>';
+      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Stage Completions</h3><span class="artifact-row-meta">' + ((detail.handoffs || []).length) + ' records</span></div><div class="panel-body">' + buildHandoffHistoryPanel(detail) + '</div></section>' +
+      buildOperateLitePanel(detail) + '</div></div>';
   }
 
   function buildStepCard(step) {
