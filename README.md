@@ -15,6 +15,7 @@ O repositorio passa a assumir oficialmente dois papeis separados:
 - registry manual de produtos conhecidos
 - product cockpit com pipeline, next actions, current run e handoffs
 - knowledge packs curados com `pm-skills` como primeiro pack operacional
+- onboarding nativo de produto pela UI com cadastro no registry, runtime workspace opcional e scaffold minimo opcional
 - temas visuais com persistencia simples (`Midnight Indigo`, `Teal Signal`, `Ember Ops`)
 
 ## Runtime Features
@@ -36,6 +37,7 @@ O repositorio passa a assumir oficialmente dois papeis separados:
 - **Executable Next Actions** - acoes sugeridas podem iniciar uma execucao real com runtime recomendado
 - **Manual Assisted Handoff** - handoffs podem registrar summary, outputs, artifacts e continuidade entre etapas
 - **Knowledge-driven Execution** - presets do `pm-skills` entram no prompt guiado e no rastreamento do run
+- **Native Product Onboarding** - `New Product` cria o produto no hub, opcionalmente prepara o diretório/runtime workspace e leva direto ao `Product Detail`
 
 ## Governance Layer
 

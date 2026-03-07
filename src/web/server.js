@@ -149,6 +149,16 @@ function createServer() {
     res.json(productService.getProducts(store.getWorkspaces(), store.getSessions()));
   });
 
+  app.post('/api/products', (req, res) => {
+    const result = productService.createProduct(req.body || {}, store);
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    const detail = productService.getProductDetail(result.product.product_id, store.getWorkspaces(), store.getSessions());
+    res.status(201).json({
+      ...result,
+      detail
+    });
+  });
+
   app.get('/api/products/:id', (req, res) => {
     const detail = productService.getProductDetail(req.params.id, store.getWorkspaces(), store.getSessions());
     if (!detail) return res.status(404).json({ error: 'Not found' });

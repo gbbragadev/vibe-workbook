@@ -7,6 +7,7 @@ const { getRunCoordinatorService, buildExpectedOutputs } = require('./run-coordi
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const REGISTRY_FILE = path.join(ROOT_DIR, 'products', 'registry', 'products.json');
 const HANDOFFS_FILE = path.join(ROOT_DIR, 'state', 'product-handoffs.json');
+const PRODUCT_TEMPLATE_DIR = path.join(ROOT_DIR, 'platform', 'templates', 'product-template');
 
 const STAGE_PRESETS = [
   {
@@ -173,6 +174,15 @@ function normalizePathForCompare(value) {
   return String(value || '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
 }
 
+function slugify(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
 function deriveWorkspaceLink(product, workspace) {
   const repoPath = product?.repo?.local_path || '';
   const workingDir = workspace?.workingDir || '';
@@ -264,6 +274,100 @@ function hydrateHandoffRecord(handoff, run = null) {
     produced_outputs_snapshot: producedOutputs,
     knowledge_driver: knowledgeDriver
   };
+}
+
+function ensureDirectory(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function directoryIsEmpty(dirPath) {
+  try {
+    if (!fs.existsSync(dirPath)) return true;
+    return fs.readdirSync(dirPath).length === 0;
+  } catch {
+    return false;
+  }
+}
+
+function readTemplate(filePath) {
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function writeFileSafely(filePath, content) {
+  ensureDirectory(path.dirname(filePath));
+  fs.writeFileSync(filePath, content, 'utf8');
+}
+
+function buildManifest(product, workspaceId, timestamp) {
+  return {
+    version: 1,
+    product_id: product.product_id,
+    name: product.name,
+    slug: product.slug,
+    owner: product.owner,
+    stage: product.stage,
+    status: product.status,
+    category: product.category,
+    platform_template: 'standard-product-v1',
+    repository: {
+      local_path: product.repo.local_path,
+      remote_url: '',
+      default_branch: 'main'
+    },
+    paths: {
+      spec: 'docs/spec.md',
+      runbook: 'docs/runbook.md',
+      test_strategy: 'docs/test-strategy.md',
+      release_plan: 'docs/release-plan.md'
+    },
+    runtime: {
+      workspace_id: workspaceId || '',
+      primary_agent: 'claude'
+    },
+    governance: {
+      has_architecture_doc: true,
+      has_runbook: true,
+      has_release_plan: true
+    },
+    timestamps: {
+      created_at: timestamp,
+      updated_at: timestamp
+    }
+  };
+}
+
+function scaffoldProductStructure(product, workspaceId) {
+  const repoPath = product?.repo?.local_path || '';
+  if (!repoPath) return;
+
+  const timestamp = new Date().toISOString();
+  const manifest = buildManifest(product, workspaceId, timestamp);
+  const replacements = [
+    ['Example Product', product.name],
+    ['example-product', product.slug],
+    ['owner-id', product.owner],
+    ['discovery', product.stage],
+    ['C:\\Projects\\example-product', product.repo.local_path],
+    ['Describe the product in one short paragraph.', product.summary || 'Describe the product in one short paragraph.']
+  ];
+
+  const textWithReplacements = (filePath) => {
+    let text = readTemplate(filePath);
+    replacements.forEach(([from, to]) => {
+      text = text.split(from).join(to);
+    });
+    return text;
+  };
+
+  writeFileSafely(path.join(repoPath, 'README.md'), readTemplate(path.join(PRODUCT_TEMPLATE_DIR, 'README.md')));
+  writeFileSafely(path.join(repoPath, 'PRODUCT.md'), textWithReplacements(path.join(PRODUCT_TEMPLATE_DIR, 'PRODUCT.md')));
+  writeFileSafely(path.join(repoPath, 'ARCHITECTURE.md'), textWithReplacements(path.join(PRODUCT_TEMPLATE_DIR, 'ARCHITECTURE.md')));
+  writeFileSafely(path.join(repoPath, 'docs', 'spec.md'), textWithReplacements(path.join(PRODUCT_TEMPLATE_DIR, 'docs', 'spec.md')));
+  writeFileSafely(path.join(repoPath, 'docs', 'runbook.md'), readTemplate(path.join(PRODUCT_TEMPLATE_DIR, 'docs', 'runbook.md')));
+  writeFileSafely(path.join(repoPath, 'docs', 'test-strategy.md'), readTemplate(path.join(PRODUCT_TEMPLATE_DIR, 'docs', 'test-strategy.md')));
+  writeFileSafely(path.join(repoPath, 'docs', 'release-plan.md'), readTemplate(path.join(PRODUCT_TEMPLATE_DIR, 'docs', 'release-plan.md')));
+  writeFileSafely(path.join(repoPath, '.platform', 'product.json'), JSON.stringify(manifest, null, 2));
+  ensureDirectory(path.join(repoPath, 'ADR'));
 }
 
 function enrichWithKnowledgeDriver(target, preset, opts = {}) {
@@ -586,6 +690,126 @@ class ProductService {
     }
     writeJsonAtomic(this.registryFile, registry);
     return product;
+  }
+
+  createProduct(payload, store) {
+    const registry = this.getRegistry();
+    const timestamp = new Date().toISOString();
+    const name = String(payload.name || '').trim();
+    const owner = String(payload.owner || '').trim();
+    const category = String(payload.category || 'product').trim() || 'product';
+    const stage = STAGE_PRESETS.some((item) => item.id === payload.stage) ? payload.stage : 'brief';
+    const summary = String(payload.summary || '').trim();
+    const slug = slugify(payload.slug || payload.product_id || name);
+    const productId = slugify(payload.product_id || slug);
+    const repoPath = String(payload?.repo?.local_path || payload.local_path || '').trim();
+    const createRuntimeWorkspace = payload.workspace_mode === 'create';
+    const existingWorkspaceId = payload.workspace_mode === 'existing' ? String(payload.workspace_id || '').trim() : '';
+    const createDirectory = payload.create_directory === true;
+    const createMinimalStructure = payload.create_minimal_structure === true;
+    const enablePmSkills = payload.enable_pm_skills !== false && category === 'product';
+
+    if (!name) return { error: 'Product name is required', status: 400 };
+    if (!owner) return { error: 'Owner is required', status: 400 };
+    if (!productId) return { error: 'product_id is required', status: 400 };
+    if (!repoPath) return { error: 'repo.local_path is required', status: 400 };
+    if (registry.products.some((item) => item.product_id === productId || item.slug === slug)) {
+      return { error: 'Product id or slug already exists', status: 409 };
+    }
+
+    const repoExists = fs.existsSync(repoPath);
+    if (!repoExists && !(createDirectory || createMinimalStructure)) {
+      return { error: 'Directory does not exist. Choose create directory or select an existing path.', status: 400 };
+    }
+    if (repoExists && createDirectory && !directoryIsEmpty(repoPath)) {
+      return { error: 'Target directory already exists and is not empty.', status: 409 };
+    }
+    if (createMinimalStructure && repoExists && !directoryIsEmpty(repoPath)) {
+      return { error: 'Cannot scaffold into a non-empty directory.', status: 409 };
+    }
+
+    let linkedWorkspace = null;
+    if (existingWorkspaceId) {
+      linkedWorkspace = store?.getWorkspace ? store.getWorkspace(existingWorkspaceId) : null;
+      if (!linkedWorkspace) return { error: 'Selected runtime workspace was not found', status: 400 };
+    }
+
+    if (!repoExists && (createDirectory || createMinimalStructure)) {
+      ensureDirectory(repoPath);
+    }
+
+    if (createRuntimeWorkspace) {
+      const workspaceName = String(payload.workspace_name || `${name} Runtime`).trim() || `${name} Runtime`;
+      const workspaceDescription = String(payload.workspace_description || '').trim();
+      linkedWorkspace = store?.createWorkspace
+        ? store.createWorkspace({
+            name: workspaceName,
+            description: workspaceDescription,
+            workingDir: repoPath
+          })
+        : null;
+    }
+
+    const product = {
+      product_id: productId,
+      name,
+      slug,
+      status: 'active',
+      stage,
+      owner,
+      category,
+      summary,
+      repo: {
+        mode: 'local',
+        local_path: repoPath,
+        remote_url: '',
+        default_branch: 'main'
+      },
+      workspace: deriveWorkspaceLink({
+        repo: { local_path: repoPath },
+        workspace: {}
+      }, linkedWorkspace),
+      platform: {
+        template: 'standard-product-v1',
+        manifest_path: createMinimalStructure ? '.platform/product.json' : '',
+        runbook_path: createMinimalStructure ? 'docs/runbook.md' : '',
+        spec_path: createMinimalStructure ? 'docs/spec.md' : ''
+      },
+      governance: {
+        source_of_truth: 'registry',
+        decision_status: 'created-via-ui',
+        notes: []
+      },
+      timestamps: {
+        created_at: timestamp,
+        updated_at: timestamp
+      }
+    };
+
+    if (createMinimalStructure) {
+      scaffoldProductStructure(product, linkedWorkspace?.id || existingWorkspaceId || '');
+    }
+
+    registry.generated_at = timestamp;
+    registry.products.push(product);
+    writeJsonAtomic(this.registryFile, registry);
+
+    if (enablePmSkills && this.knowledgePackService.getPackById('pm-skills')) {
+      this.knowledgePackService.upsertBinding({
+        product_id: productId,
+        knowledge_pack_id: 'pm-skills',
+        enabled: true,
+        notes: 'Enabled by native onboarding.'
+      });
+    }
+
+    return {
+      product,
+      workspace: linkedWorkspace || null,
+      created_structure: createMinimalStructure,
+      created_directory: !repoExists && (createDirectory || createMinimalStructure),
+      knowledge_pack_ids: enablePmSkills ? ['pm-skills'] : []
+    };
   }
 
   getHandoffs(productId = '') {

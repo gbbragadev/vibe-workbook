@@ -1120,3 +1120,160 @@ test('getHandoffs returns enriched records with snapshots and knowledge driver m
   assert.equal(handoff.knowledge_driver?.knowledge_pack_id, 'pm-skills');
   assert.equal(handoff.knowledge_driver?.preset_id, '/discover');
 });
+
+test('createProduct creates registry entry, optional workspace, scaffold and default knowledge binding', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'new-product');
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({ version: 1, products: [] }, null, 2));
+
+  const knowledgePackService = makeKnowledgeService(dir, {
+    packs: [
+      {
+        id: 'pm-skills',
+        name: 'PM Skills',
+        source: 'external-github',
+        type: 'skills-pack',
+        repo_url: 'https://github.com/phuryn/pm-skills',
+        domains: ['product-discovery'],
+        supported_runtimes: ['claude'],
+        integration_mode: 'reference-first',
+        status: 'active'
+      }
+    ],
+    bindings: [],
+    recommendations: []
+  });
+  const service = makeProductService(dir, { registryFile, knowledgePackService });
+  const fakeStore = {
+    createWorkspace(input) {
+      return {
+        id: 'ws-new',
+        name: input.name,
+        description: input.description,
+        workingDir: input.workingDir
+      };
+    }
+  };
+
+  const result = service.createProduct({
+    name: 'New Product',
+    product_id: 'new-product',
+    slug: 'new-product',
+    owner: 'guibr',
+    category: 'product',
+    stage: 'brief',
+    summary: 'New product summary',
+    repo: { local_path: repoDir },
+    workspace_mode: 'create',
+    workspace_name: 'New Product Runtime',
+    workspace_description: 'Runtime context',
+    create_directory: true,
+    create_minimal_structure: true,
+    enable_pm_skills: true
+  }, fakeStore);
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.product.product_id, 'new-product');
+  assert.equal(result.workspace.id, 'ws-new');
+  assert.equal(result.created_directory, true);
+  assert.equal(result.created_structure, true);
+  assert.ok(fs.existsSync(path.join(repoDir, '.platform', 'product.json')));
+  assert.ok(fs.existsSync(path.join(repoDir, 'docs', 'spec.md')));
+  assert.ok(fs.existsSync(path.join(repoDir, 'PRODUCT.md')));
+
+  const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
+  assert.equal(registry.products.length, 1);
+  assert.equal(registry.products[0].workspace.runtime_workspace_id, 'ws-new');
+  assert.equal(registry.products[0].platform.manifest_path, '.platform/product.json');
+
+  const bindings = JSON.parse(fs.readFileSync(path.join(dir, 'bindings.json'), 'utf8'));
+  assert.equal(bindings.bindings.length, 1);
+  assert.equal(bindings.bindings[0].knowledge_pack_id, 'pm-skills');
+});
+
+test('createProduct supports existing directory and existing runtime workspace without scaffold', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'existing-product');
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'README.md'), '# existing');
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({ version: 1, products: [] }, null, 2));
+
+  const service = makeProductService(dir, { registryFile });
+  const fakeStore = {
+    getWorkspace(id) {
+      if (id !== 'ws-existing') return null;
+      return { id, name: 'Existing Runtime', workingDir: repoDir };
+    }
+  };
+
+  const result = service.createProduct({
+    name: 'Existing Product',
+    owner: 'guibr',
+    category: 'internal-tool',
+    stage: 'brief',
+    repo: { local_path: repoDir },
+    workspace_mode: 'existing',
+    workspace_id: 'ws-existing',
+    create_directory: false,
+    create_minimal_structure: false,
+    enable_pm_skills: false
+  }, fakeStore);
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.product.product_id, 'existing-product');
+  assert.equal(result.product.workspace.runtime_workspace_id, 'ws-existing');
+  assert.equal(result.product.platform.manifest_path, '');
+  assert.equal(fs.existsSync(path.join(repoDir, '.platform', 'product.json')), false);
+});
+
+test('createProduct rejects duplicate product ids and invalid directories', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'product-a');
+  fs.mkdirSync(repoDir, { recursive: true });
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'product-a',
+        name: 'Product A',
+        slug: 'product-a',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: '',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: '', current_working_dir: '', path_status: 'unknown' },
+        platform: {},
+        governance: {},
+        timestamps: { created_at: '', updated_at: '' }
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, { registryFile });
+  const duplicate = service.createProduct({
+    name: 'Duplicate',
+    product_id: 'product-a',
+    owner: 'guibr',
+    category: 'product',
+    stage: 'brief',
+    repo: { local_path: path.join(dir, 'other') }
+  }, {});
+  assert.equal(duplicate.status, 409);
+
+  const missingDir = service.createProduct({
+    name: 'Missing Dir',
+    owner: 'guibr',
+    category: 'product',
+    stage: 'brief',
+    repo: { local_path: path.join(dir, 'missing') },
+    create_directory: false,
+    create_minimal_structure: false
+  }, {});
+  assert.equal(missingDir.status, 400);
+});
