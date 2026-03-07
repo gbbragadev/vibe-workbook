@@ -1,0 +1,26 @@
+{
+  "name": "vibe-workbook",
+  "version": "1.0.0",
+  "description": "Multi-agent workspace manager for vibe coding — Claude Code, Codex CLI, Antigravity",
+  "main": "src/gui.js",
+  "bin": {
+    "vibe-workbook": "./src/gui.js",
+    "vibe": "./src/gui.js"
+  },
+  "scripts": {
+    "gui": "node src/gui.js",
+    "gui:demo": "node src/gui.js --demo",
+    "start": "node src/gui.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "express": "^4.22.1",
+    "node-pty": "^1.0.0",
+    "ws": "^8.19.0"
+  },
+  "license": "MIT"
+}

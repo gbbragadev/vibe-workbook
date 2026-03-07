@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-07T15:45:19.177Z",
+  "products": [
+    {
+      "product_id": "zapcam",
+      "name": "Zapcam",
+      "slug": "zapcam",
+      "status": "active",
+      "stage": "build",
+      "owner": "guibr",
+      "category": "product",
+      "summary": "SaaS de monitoramento para cameras IP ONVIF com alertas via WhatsApp e analise por IA.",
+      "repo": {
+        "mode": "local",
+        "local_path": "C:\\Users\\guibr\\ZapCam",
+        "remote_url": "",
+        "default_branch": "main"
+      },
+      "workspace": {
+        "runtime_workspace_id": "ws-634fa99c",
+        "current_working_dir": "",
+        "path_status": "unknown"
+      },
+      "platform": {
+        "template": "standard-product-v1",
+        "manifest_path": "",
+        "runbook_path": "",
+        "spec_path": ""
+      },
+      "governance": {
+        "source_of_truth": "registry",
+        "decision_status": "consolidated-phase-1",
+        "notes": [
+          "Workspace link updated to Projeto ZapCam (ws-634fa99c)",
+          "Workspace link updated to CamZap (ws-bf903de8)",
+          "Workspace legado aponta para o repo do Myrlin Workbook, nao para o repo do produto",
+          "Repo local consolidado com base no diretorio existente C:\\Users\\guibr\\ZapCam",
+          "Workspace CamZap tratado como duplicidade operacional do mesmo produto"
+        ]
+      },
+      "timestamps": {
+        "created_at": "2026-03-07T00:00:00Z",
+        "updated_at": "2026-03-07T15:45:19.177Z"
+      }
+    },
+    {
+      "product_id": "rondax",
+      "name": "Ronda X",
+      "slug": "rondax",
+      "status": "active",
+      "stage": "build",
+      "owner": "guibr",
+      "category": "product",
+      "summary": "Aplicacao Angular relacionada ao produto Ronda X Veiculos.",
+      "repo": {
+        "mode": "local",
+        "local_path": "C:\\Users\\guibr\\Documents\\_Organizados\\Projetos\\ronda-x-veiculos",
+        "remote_url": "",
+        "default_branch": "main"
+      },
+      "workspace": {
+        "runtime_workspace_id": "ws-010ce800",
+        "current_working_dir": "C:\\Users\\guibr\\Documents\\.Organizados-Projetos-ronda-x-veiculos",
+        "path_status": "invalid"
+      },
+      "platform": {
+        "template": "standard-product-v1",
+        "manifest_path": "",
+        "runbook_path": "",
+        "spec_path": ""
+      },
+      "governance": {
+        "source_of_truth": "registry",
+        "decision_status": "consolidated-phase-1",
+        "notes": [
+          "Path do workspace legado nao existe",
+          "Repo local consolidado com base no diretorio existente em Documents\\_Organizados\\Projetos\\ronda-x-veiculos"
+        ]
+      },
+      "timestamps": {
+        "created_at": "2026-03-07T00:00:00Z",
+        "updated_at": "2026-03-07T00:00:00Z"
+      }
+    },
+    {
+      "product_id": "lsp-agent-v3",
+      "name": "LSP Agent v3",
+      "slug": "lsp-agent-v3",
+      "status": "active",
+      "stage": "build",
+      "owner": "guibr",
+      "category": "internal-tool",
+      "summary": "Ferramenta interna e base de conhecimento relacionada a LSP.",
+      "repo": {
+        "mode": "local",
+        "local_path": "C:\\Users\\guibr\\Documents\\_Organizados\\Projetos\\Guilherme_Projetos\\lsp-agent-v3\\lsp-agent",
+        "remote_url": "",
+        "default_branch": "main"
+      },
+      "workspace": {
+        "runtime_workspace_id": "ws-6b23ebad",
+        "current_working_dir": "C:\\Users\\guibr\\Documents\\.Organizados-Projetos-Guilherme-Projetos-lsp-agent-v3-lsp-agent",
+        "path_status": "invalid"
+      },
+      "platform": {
+        "template": "standard-product-v1",
+        "manifest_path": "",
+        "runbook_path": "",
+        "spec_path": ""
+      },
+      "governance": {
+        "source_of_truth": "registry",
+        "decision_status": "consolidated-phase-1",
+        "notes": [
+          "Path do workspace legado nao existe",
+          "Repo local consolidado com base no subdiretorio versionado lsp-agent dentro de lsp-agent-v3"
+        ]
+      },
+      "timestamps": {
+        "created_at": "2026-03-07T00:00:00Z",
+        "updated_at": "2026-03-07T00:00:00Z"
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "knowledge_packs": [
+    {
+      "id": "pm-skills",
+      "manifest": "pm-skills.pack.json"
+    }
+  ]
+}

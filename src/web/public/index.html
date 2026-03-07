@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vibe Workbook</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+</head>
+<body>
+  <div id="login-screen">
+    <div class="login-box">
+      <h1>Vibe Workbook</h1>
+      <p>Multi-agent workspace for vibe coding</p>
+      <input type="password" id="login-password" placeholder="Password" autofocus>
+      <button id="login-btn">Login</button>
+      <div id="login-error" class="hidden"></div>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
+    <header id="header">
+      <div class="header-left">
+        <span class="logo">Vibe Workbook</span>
+        <span class="header-stats" id="header-stats"></span>
+      </div>
+      <div class="header-right">
+        <button class="btn btn-sm btn-primary" id="btn-products" title="Products">Products</button>
+        <button class="btn btn-sm" id="btn-terminals" title="Terminal workspace">Terminals</button>
+        <button class="btn btn-sm" id="btn-history" title="Session history">History</button>
+        <button class="btn btn-sm" id="btn-discover" title="Discover sessions">Discover</button>
+        <button class="btn btn-sm" id="btn-cost-dashboard" title="Cost dashboard">Costs</button>
+        <select id="agent-filter" title="Filter by agent">
+          <option value="">All Agents</option>
+          <option value="claude">Claude Code</option>
+          <option value="codex">Codex CLI</option>
+          <option value="gemini">Gemini CLI</option>
+        </select>
+      </div>
+    </header>
+
+    <div id="main-layout">
+      <aside id="sidebar">
+        <div class="sidebar-header">
+          <h2>Projects</h2>
+          <button class="btn btn-sm btn-primary" id="btn-new-workspace" title="New project">+ Project</button>
+        </div>
+        <div id="workspace-list"></div>
+        <div class="sidebar-footer">
+          <input type="text" id="search-input" placeholder="Search sessions...">
+        </div>
+      </aside>
+
+      <main id="content">
+        <div id="view-products" class="view active">
+          <div class="products-page">
+            <section class="products-overview-panel">
+              <div class="products-header">
+                <div>
+                  <h2>Products</h2>
+                  <p id="products-summary" class="products-summary"></p>
+                </div>
+              </div>
+              <div id="products-overview"></div>
+            </section>
+            <section id="product-detail" class="product-detail-panel"></section>
+          </div>
+        </div>
+
+        <div id="view-terminals" class="view">
+          <div class="view-toolbar">
+            <div class="toolbar-left">
+              <span id="active-workspace-name">Select a project</span>
+            </div>
+            <div class="toolbar-right">
+              <button class="btn btn-sm btn-primary" id="btn-new-session">+ Session</button>
+              <button class="btn btn-sm" id="btn-stop-all-sessions" title="Stop all sessions in this project">Stop All</button>
+              <button class="btn btn-sm" id="btn-layout-1" title="Single pane">1</button>
+              <button class="btn btn-sm" id="btn-layout-2" title="Split vertical">2</button>
+              <button class="btn btn-sm" id="btn-layout-4" title="Grid 2x2">4</button>
+            </div>
+          </div>
+          <div id="terminal-grid"></div>
+        </div>
+
+        <div id="view-costs" class="view">
+          <div class="cost-header">
+            <h2>Cost Dashboard</h2>
+          </div>
+          <div id="cost-content"></div>
+        </div>
+
+        <div id="view-history" class="view">
+          <div class="history-header">
+            <h2>Session History</h2>
+          </div>
+          <div id="history-content"></div>
+        </div>
+
+        <div id="view-discover" class="view">
+          <div class="discover-header">
+            <h2>Discovered Sessions</h2>
+            <button class="btn btn-sm btn-primary" id="btn-run-discover">Scan</button>
+          </div>
+          <div id="discover-content"></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="dialog-overlay" class="hidden">
+    <div id="dialog-box">
+      <h3 id="dialog-title"></h3>
+      <div id="dialog-body"></div>
+      <div id="dialog-actions"></div>
+    </div>
+  </div>
+
+  <div id="context-menu" class="hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

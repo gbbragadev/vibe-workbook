@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "recommendations": [
+    {
+      "knowledge_pack_id": "pm-skills",
+      "stage_id": "idea",
+      "recommended_skills": [
+        "brainstorm-ideas-new"
+      ],
+      "recommended_workflows": [
+        "/discover"
+      ],
+      "recommended_roles": [
+        "product-designer"
+      ],
+      "recommended_runtime_agents": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "knowledge_pack_id": "pm-skills",
+      "stage_id": "brief",
+      "recommended_skills": [
+        "identify-assumptions-new",
+        "prioritize-assumptions"
+      ],
+      "recommended_workflows": [
+        "/discover"
+      ],
+      "recommended_roles": [
+        "product-designer"
+      ],
+      "recommended_runtime_agents": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "knowledge_pack_id": "pm-skills",
+      "stage_id": "spec",
+      "recommended_skills": [
+        "prioritize-features"
+      ],
+      "recommended_workflows": [
+        "/write-prd"
+      ],
+      "recommended_roles": [
+        "delivery-planner"
+      ],
+      "recommended_runtime_agents": [
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "knowledge_pack_id": "pm-skills",
+      "stage_id": "architecture",
+      "recommended_skills": [
+        "opportunity-solution-tree"
+      ],
+      "recommended_workflows": [
+        "/strategy"
+      ],
+      "recommended_roles": [
+        "principal-architect"
+      ],
+      "recommended_runtime_agents": [
+        "codex",
+        "claude"
+      ]
+    },
+    {
+      "knowledge_pack_id": "pm-skills",
+      "stage_id": "implementation",
+      "recommended_skills": [
+        "prioritize-features"
+      ],
+      "recommended_workflows": [],
+      "recommended_roles": [
+        "implementation-agent"
+      ],
+      "recommended_runtime_agents": [
+        "codex"
+      ]
+    },
+    {
+      "knowledge_pack_id": "pm-skills",
+      "stage_id": "test",
+      "recommended_skills": [
+        "brainstorm-experiments-existing"
+      ],
+      "recommended_workflows": [],
+      "recommended_roles": [
+        "qa-agent"
+      ],
+      "recommended_runtime_agents": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "knowledge_pack_id": "pm-skills",
+      "stage_id": "release",
+      "recommended_skills": [
+        "north-star-metric"
+      ],
+      "recommended_workflows": [
+        "/plan-launch",
+        "/north-star"
+      ],
+      "recommended_roles": [
+        "release-agent"
+      ],
+      "recommended_runtime_agents": [
+        "claude"
+      ]
+    }
+  ]
+}

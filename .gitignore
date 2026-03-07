@@ -1,0 +1,10 @@
+node_modules/
+.playwright-cli/
+output/
+
+state/
+!state/.gitkeep
+
+.DS_Store
+Thumbs.db
+*.log

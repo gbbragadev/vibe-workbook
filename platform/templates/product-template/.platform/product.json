@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "product_id": "example-product",
+  "name": "Example Product",
+  "slug": "example-product",
+  "owner": "owner-id",
+  "stage": "discovery",
+  "status": "active",
+  "category": "product",
+  "platform_template": "standard-product-v1",
+  "repository": {
+    "local_path": "C:\\Projects\\example-product",
+    "remote_url": "",
+    "default_branch": "main"
+  },
+  "paths": {
+    "spec": "docs/spec.md",
+    "runbook": "docs/runbook.md",
+    "test_strategy": "docs/test-strategy.md",
+    "release_plan": "docs/release-plan.md"
+  },
+  "runtime": {
+    "workspace_id": "",
+    "primary_agent": "codex"
+  },
+  "governance": {
+    "has_architecture_doc": true,
+    "has_runbook": true,
+    "has_release_plan": true
+  },
+  "timestamps": {
+    "created_at": "2026-03-07T00:00:00Z",
+    "updated_at": "2026-03-07T00:00:00Z"
+  }
+}

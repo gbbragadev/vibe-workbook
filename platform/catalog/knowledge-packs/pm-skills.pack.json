@@ -1,0 +1,41 @@
+{
+  "id": "pm-skills",
+  "name": "PM Skills Marketplace",
+  "source": "external-github",
+  "type": "skills-pack",
+  "repo_url": "https://github.com/phuryn/pm-skills",
+  "homepage_url": "https://github.com/phuryn/pm-skills",
+  "description": "Curated product management skill pack with reusable commands, plugins and workflows for discovery, strategy, execution, launch and analytics.",
+  "domains": [
+    "product-discovery",
+    "product-strategy",
+    "execution",
+    "go-to-market",
+    "analytics",
+    "growth"
+  ],
+  "supported_runtimes": [
+    "claude",
+    "codex",
+    "gemini"
+  ],
+  "integration_mode": "reference-first",
+  "status": "active",
+  "entrypoints": [
+    "/discover",
+    "/strategy",
+    "/write-prd",
+    "/plan-launch",
+    "/north-star"
+  ],
+  "plugin_groups": [
+    "pm-product-discovery",
+    "pm-product-strategy",
+    "pm-execution",
+    "pm-go-to-market",
+    "pm-data-analytics",
+    "pm-marketing-growth",
+    "pm-market-research",
+    "pm-toolkit"
+  ]
+}
