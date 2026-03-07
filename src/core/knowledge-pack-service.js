@@ -32,6 +32,13 @@ function dedupe(values) {
   return [...new Set((values || []).filter(Boolean))];
 }
 
+function writeJsonAtomic(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 function normalizePreset(type, value, packId) {
   if (!value) return null;
   return {
@@ -103,6 +110,24 @@ class KnowledgePackService {
       ? data.bindings.filter((binding) => binding.product_id === productId)
       : data.bindings;
     return bindings.slice();
+  }
+
+  upsertBinding(binding) {
+    const data = normalizeBindings(readJson(this.bindingsFile, { version: 1, bindings: [] }));
+    const normalized = {
+      product_id: binding.product_id,
+      knowledge_pack_id: binding.knowledge_pack_id,
+      enabled: binding.enabled !== false,
+      notes: binding.notes || ''
+    };
+    const index = data.bindings.findIndex((item) => item.product_id === normalized.product_id && item.knowledge_pack_id === normalized.knowledge_pack_id);
+    if (index >= 0) {
+      data.bindings[index] = { ...data.bindings[index], ...normalized };
+    } else {
+      data.bindings.push(normalized);
+    }
+    writeJsonAtomic(this.bindingsFile, data);
+    return normalized;
   }
 
   getRecommendations(packId = '') {

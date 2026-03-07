@@ -874,6 +874,225 @@
       ]);
   }
 
+  function slugifyClient(value) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64);
+  }
+
+  function showProductWizard(initialDraft) {
+    const draft = Object.assign({
+      name: '',
+      product_id: '',
+      slug: '',
+      owner: 'guibr',
+      category: 'product',
+      stage: 'brief',
+      summary: '',
+      local_path: '',
+      directory_mode: 'existing',
+      create_directory: false,
+      create_minimal_structure: false,
+      workspace_mode: 'none',
+      workspace_id: '',
+      workspace_name: '',
+      workspace_description: '',
+      enable_pm_skills: true,
+      auto_slug: true
+    }, initialDraft || {});
+
+    function renderStep(step) {
+      document.getElementById('dialog-title').textContent = 'New Product';
+      const body = document.getElementById('dialog-body');
+      const actions = document.getElementById('dialog-actions');
+      actions.innerHTML = '';
+
+      const stepper = '<div class="wizard-steps"><span class="wizard-step ' + (step === 1 ? 'active' : '') + '">1. Basics</span><span class="wizard-step ' + (step === 2 ? 'active' : '') + '">2. Structure & Runtime</span></div>';
+      if (step === 1) {
+        body.innerHTML = stepper +
+          '<label>Product Name</label><input type="text" id="dlg-product-name" value="' + esc(draft.name) + '" placeholder="Zapcam">' +
+          '<label>Product ID</label><input type="text" id="dlg-product-id" value="' + esc(draft.product_id) + '" placeholder="zapcam">' +
+          '<label>Slug</label><input type="text" id="dlg-product-slug" value="' + esc(draft.slug) + '" placeholder="zapcam">' +
+          '<label>Owner</label><input type="text" id="dlg-product-owner" value="' + esc(draft.owner) + '" placeholder="guibr">' +
+          '<label>Category</label><select id="dlg-product-category"><option value="product"' + (draft.category === 'product' ? ' selected' : '') + '>product</option><option value="internal-tool"' + (draft.category === 'internal-tool' ? ' selected' : '') + '>internal-tool</option><option value="experiment"' + (draft.category === 'experiment' ? ' selected' : '') + '>experiment</option></select>' +
+          '<label>Initial Stage</label><select id="dlg-product-stage">' + STAGE_ORDER.filter(item => item !== 'test' && item !== 'release').map(item => '<option value="' + item + '"' + (draft.stage === item ? ' selected' : '') + '>' + esc(item) + '</option>').join('') + '</select>' +
+          '<label>Summary</label><textarea id="dlg-product-summary" placeholder="Short product summary.">' + esc(draft.summary) + '</textarea>' +
+          '<p class="wizard-help">Create the delivery unit first. Runtime workspace and scaffold stay optional in the next step.</p>';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', hideDialog);
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-primary';
+        nextBtn.textContent = 'Next';
+        nextBtn.addEventListener('click', () => {
+          draft.name = document.getElementById('dlg-product-name').value.trim();
+          draft.product_id = slugifyClient(document.getElementById('dlg-product-id').value.trim());
+          draft.slug = slugifyClient(document.getElementById('dlg-product-slug').value.trim());
+          draft.owner = document.getElementById('dlg-product-owner').value.trim();
+          draft.category = document.getElementById('dlg-product-category').value;
+          draft.stage = document.getElementById('dlg-product-stage').value;
+          draft.summary = document.getElementById('dlg-product-summary').value.trim();
+          if (!draft.name || !draft.owner) {
+            alert('Product name and owner are required.');
+            return;
+          }
+          if (!draft.product_id) draft.product_id = slugifyClient(draft.name);
+          if (!draft.slug) draft.slug = draft.product_id;
+          draft.enable_pm_skills = draft.category === 'product';
+          renderStep(2);
+        });
+        actions.appendChild(cancelBtn);
+        actions.appendChild(nextBtn);
+
+        const nameInput = document.getElementById('dlg-product-name');
+        const idInput = document.getElementById('dlg-product-id');
+        const slugInput = document.getElementById('dlg-product-slug');
+        const syncIds = () => {
+          const nextSlug = slugifyClient(nameInput.value);
+          if (!idInput.value || draft.auto_slug) idInput.value = nextSlug;
+          if (!slugInput.value || draft.auto_slug) slugInput.value = nextSlug;
+        };
+        idInput.addEventListener('input', () => { draft.auto_slug = false; });
+        slugInput.addEventListener('input', () => { draft.auto_slug = false; });
+        nameInput.addEventListener('input', syncIds);
+      } else {
+        const workspaceOptions = ['<option value="">Select runtime workspace</option>']
+          .concat(workspaces.map(ws => '<option value="' + ws.id + '"' + (ws.id === draft.workspace_id ? ' selected' : '') + '>' + esc(ws.name) + ' - ' + esc(ws.workingDir || 'no working dir') + '</option>'))
+          .join('');
+        const workspaceCreateBlock = draft.workspace_mode === 'create'
+          ? '<label>Runtime Workspace Name</label><input type="text" id="dlg-product-workspace-name" value="' + esc(draft.workspace_name || (draft.name ? (draft.name + ' Runtime') : '')) + '">' +
+            '<label>Workspace Description</label><input type="text" id="dlg-product-workspace-description" value="' + esc(draft.workspace_description) + '" placeholder="Optional execution context description">'
+          : '';
+        const workspaceExistingBlock = draft.workspace_mode === 'existing'
+          ? '<label>Existing Runtime Workspace</label><select id="dlg-product-workspace-id">' + workspaceOptions + '</select>'
+          : '';
+
+        body.innerHTML = stepper +
+          '<label>Product Directory</label><div class="inline-field-row"><input type="text" id="dlg-product-path" value="' + esc(draft.local_path) + '" placeholder="C:\\Projects\\zapcam" style="flex:1"><button class="btn btn-sm" id="dlg-product-path-browse" type="button">&#128193;</button></div>' +
+          '<label>Directory Mode</label><select id="dlg-product-directory-mode"><option value="existing"' + (draft.directory_mode === 'existing' ? ' selected' : '') + '>Use existing directory</option><option value="create"' + (draft.directory_mode === 'create' ? ' selected' : '') + '>Create new directory</option></select>' +
+          '<label class="checkbox-row"><input type="checkbox" id="dlg-product-create-structure"' + (draft.create_minimal_structure ? ' checked' : '') + '> Create minimal product structure from template</label>' +
+          '<label>Runtime Workspace</label><select id="dlg-product-workspace-mode"><option value="none"' + (draft.workspace_mode === 'none' ? ' selected' : '') + '>No runtime workspace for now</option><option value="create"' + (draft.workspace_mode === 'create' ? ' selected' : '') + '>Create runtime workspace</option><option value="existing"' + (draft.workspace_mode === 'existing' ? ' selected' : '') + '>Link existing runtime workspace</option></select>' +
+          workspaceCreateBlock + workspaceExistingBlock +
+          '<label class="checkbox-row"><input type="checkbox" id="dlg-product-pm-skills"' + (draft.category === 'product' && draft.enable_pm_skills ? ' checked' : '') + (draft.category !== 'product' ? ' disabled' : '') + '> Enable PM Skills guidance</label>' +
+          '<p class="wizard-help">Safe defaults: no Git automation, no code generation, and no overwrite of non-empty directories.</p>';
+
+        const backBtn = document.createElement('button');
+        backBtn.className = 'btn';
+        backBtn.textContent = 'Back';
+        backBtn.addEventListener('click', () => {
+          draft.local_path = document.getElementById('dlg-product-path').value.trim();
+          draft.create_minimal_structure = document.getElementById('dlg-product-create-structure').checked;
+          draft.directory_mode = document.getElementById('dlg-product-directory-mode').value;
+          draft.workspace_mode = document.getElementById('dlg-product-workspace-mode').value;
+          renderStep(1);
+        });
+
+        const createBtn = document.createElement('button');
+        createBtn.className = 'btn btn-primary';
+        createBtn.textContent = 'Create Product';
+        createBtn.addEventListener('click', async () => {
+          draft.local_path = document.getElementById('dlg-product-path').value.trim();
+          draft.directory_mode = document.getElementById('dlg-product-directory-mode').value;
+          draft.create_directory = draft.directory_mode === 'create';
+          draft.create_minimal_structure = document.getElementById('dlg-product-create-structure').checked;
+          draft.workspace_mode = document.getElementById('dlg-product-workspace-mode').value;
+          draft.workspace_id = document.getElementById('dlg-product-workspace-id') ? document.getElementById('dlg-product-workspace-id').value : '';
+          draft.workspace_name = document.getElementById('dlg-product-workspace-name') ? document.getElementById('dlg-product-workspace-name').value.trim() : '';
+          draft.workspace_description = document.getElementById('dlg-product-workspace-description') ? document.getElementById('dlg-product-workspace-description').value.trim() : '';
+          draft.enable_pm_skills = draft.category === 'product' && !!(document.getElementById('dlg-product-pm-skills') && document.getElementById('dlg-product-pm-skills').checked);
+
+          if (!draft.local_path) {
+            alert('Product directory is required.');
+            return;
+          }
+          if (draft.workspace_mode === 'existing' && !draft.workspace_id) {
+            alert('Select a runtime workspace or choose another workspace mode.');
+            return;
+          }
+
+          try {
+            const result = await api('/products', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: draft.name,
+                product_id: draft.product_id,
+                slug: draft.slug,
+                owner: draft.owner,
+                category: draft.category,
+                stage: draft.stage || 'brief',
+                summary: draft.summary,
+                repo: { local_path: draft.local_path },
+                workspace_mode: draft.workspace_mode,
+                workspace_id: draft.workspace_id,
+                workspace_name: draft.workspace_name,
+                workspace_description: draft.workspace_description,
+                create_directory: draft.create_directory,
+                create_minimal_structure: draft.create_minimal_structure,
+                enable_pm_skills: draft.enable_pm_skills
+              })
+            });
+            hideDialog();
+            activeProductId = result.product.product_id;
+            if (result.detail) productDetails[result.product.product_id] = result.detail;
+            await loadWorkspaces();
+            await loadAllSessions();
+            await loadProducts(true);
+            if (result.detail && result.detail.workspace && result.detail.workspace.runtime_workspace_id) {
+              setActiveWorkspace(result.detail.workspace.runtime_workspace_id);
+            }
+            switchView('products');
+            renderWorkspaceList();
+            renderCurrentView();
+          } catch (error) {
+            alert(error.message);
+          }
+        });
+
+        actions.appendChild(backBtn);
+        actions.appendChild(createBtn);
+
+        const browseBtn = document.getElementById('dlg-product-path-browse');
+        if (browseBtn) {
+          browseBtn.addEventListener('click', async () => {
+            const currentDir = document.getElementById('dlg-product-path').value || 'C:\\Users';
+            try {
+              const data = await api('/browse?path=' + encodeURIComponent(currentDir));
+              showDirBrowser(data, (selectedPath) => {
+                draft.local_path = selectedPath;
+                renderStep(2);
+              });
+            } catch (error) {
+              console.error(error);
+            }
+          });
+        }
+
+        const workspaceModeSelect = document.getElementById('dlg-product-workspace-mode');
+        if (workspaceModeSelect) {
+          workspaceModeSelect.addEventListener('change', () => {
+            draft.local_path = document.getElementById('dlg-product-path').value.trim();
+            draft.create_minimal_structure = document.getElementById('dlg-product-create-structure').checked;
+            draft.directory_mode = document.getElementById('dlg-product-directory-mode').value;
+            draft.workspace_mode = workspaceModeSelect.value;
+            draft.workspace_id = document.getElementById('dlg-product-workspace-id') ? document.getElementById('dlg-product-workspace-id').value : '';
+            draft.workspace_name = document.getElementById('dlg-product-workspace-name') ? document.getElementById('dlg-product-workspace-name').value.trim() : draft.workspace_name;
+            draft.workspace_description = document.getElementById('dlg-product-workspace-description') ? document.getElementById('dlg-product-workspace-description').value.trim() : draft.workspace_description;
+            renderStep(2);
+          });
+        }
+      }
+
+      document.getElementById('dialog-overlay').classList.remove('hidden');
+    }
+
+    renderStep(1);
+  }
+
   function metaItem(label, value) {
     return '<div><span class="meta-item-label">' + esc(label) + '</span><span class="mono">' + esc(value || 'unknown') + '</span></div>';
   }
@@ -2071,6 +2290,7 @@
     document.getElementById('btn-history').addEventListener('click', function() { switchView('history'); });
     document.getElementById('btn-cost-dashboard').addEventListener('click', function() { switchView('costs'); });
     document.getElementById('btn-discover').addEventListener('click', function() { switchView('discover'); });
+    document.getElementById('btn-new-product').addEventListener('click', function() { showProductWizard(); });
     document.getElementById('btn-new-workspace').addEventListener('click', newWorkspace);
     document.getElementById('btn-new-session').addEventListener('click', newSession);
     document.getElementById('btn-stop-all-sessions').addEventListener('click', stopAllWorkspaceSessions);
@@ -2136,6 +2356,7 @@
       importSession: importSession,
       editWorkspace: editWorkspace,
       deleteWorkspace: deleteWorkspace,
+      showProductWizard: showProductWizard,
       startGuidedStage: startGuidedStage,
       registerHandoff: registerHandoff
     };

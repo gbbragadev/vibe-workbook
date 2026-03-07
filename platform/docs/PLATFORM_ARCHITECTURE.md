@@ -91,6 +91,22 @@ Regras atuais:
 
 Isso ainda nao e uma engine formal de workflow. E uma camada operacional leve sobre o runtime legado.
 
+## Native Product Onboarding
+
+O hub agora tambem passa a suportar o nascimento nativo de produtos pela UI, sem depender de edicao manual do registry:
+
+- `POST /api/products` cria o produto no catalogo governado
+- o onboarding pode criar um `Runtime Workspace` opcional
+- o onboarding pode preparar uma estrutura minima opcional com base em `platform/templates/product-template/`
+- o produto criado entra imediatamente no `Products Overview` e no `Product Detail`
+
+Regras desta fase:
+
+- o `registry` continua sendo a fonte inicial de verdade do produto criado pela UI
+- scaffold minimo continua opcional e conservador
+- nao ha automacao de Git, CI/CD, deploy ou geracao de aplicacao base
+- o primeiro `Run` continua nascendo apenas quando o usuario executa a primeira `Next Action`
+
 ## Knowledge In Execution
 
 `Knowledge Packs` continuam em modo `reference-first`, mas ja influenciam a execucao guiada:

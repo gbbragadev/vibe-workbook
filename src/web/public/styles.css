@@ -452,6 +452,13 @@ body {
   margin-bottom: 4px;
 }
 
+.products-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .products-summary,
 .product-subtitle {
   font-size: 12px;
@@ -508,6 +515,48 @@ body {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.45;
+}
+
+.wizard-steps {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.wizard-step {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.wizard-step.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
+  color: var(--text-primary);
+}
+
+.wizard-help {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.inline-field-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .chip-row,
