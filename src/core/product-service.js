@@ -544,7 +544,9 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
   const gapCoveredArtifacts = new Set();
   if (readiness && Array.isArray(readiness.gaps)) {
     const stageOrder = ['idea', 'brief', 'spec', 'architecture', 'implementation', 'test', 'release', 'operate'];
-    const currentIdx = stageOrder.indexOf(pipeline.find(s => s.status === 'in-progress' || s.status === 'done')?.stage_id || 'idea');
+    const advancedStages = pipeline.filter(s => s.status === 'in-progress' || s.status === 'done');
+    const furthestStage = advancedStages.length ? advancedStages[advancedStages.length - 1] : null;
+    const currentIdx = stageOrder.indexOf(furthestStage ? furthestStage.stage_id : 'idea');
     const implIdx = stageOrder.indexOf('implementation');
     const testIdx = stageOrder.indexOf('test');
 
@@ -681,15 +683,12 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
   (pipeline || []).forEach(s => { pipelineMap[s.stage_id] = s; });
 
   const implStage = pipelineMap['implementation'] || {};
-  signals.push({ id: 'implementation-done', label: 'Implementation stage completed', met: implStage.status === 'done', required: true });
+  signals.push({ id: 'implementation-done', label: 'Implementation stage completed (heuristic)', met: implStage.status === 'done', required: true });
   signals.push({ id: 'test-strategy-exists', label: 'Test strategy artifact exists', met: !!(artifactMap['test-strategy'] && artifactMap['test-strategy'].exists), required: true });
   const testStage = pipelineMap['test'] || {};
   signals.push({ id: 'test-stage-done', label: 'Test stage completed', met: testStage.status === 'done', required: true });
   signals.push({ id: 'release-plan-exists', label: 'Release plan artifact exists', met: !!(artifactMap['release-plan'] && artifactMap['release-plan'].exists), required: true });
   signals.push({ id: 'runbook-exists', label: 'Runbook artifact exists', met: !!(artifactMap['runbook'] && artifactMap['runbook'].exists), required: true });
-  const releaseStage = pipelineMap['release'] || {};
-  signals.push({ id: 'release-stage-started', label: 'Release stage started', met: releaseStage.status === 'in-progress' || releaseStage.status === 'done', required: false });
-  signals.push({ id: 'has-completion-history', label: 'Has completion history', met: Array.isArray(handoffs) && handoffs.length > 0, required: false });
 
   const requiredSignals = signals.filter(s => s.required);
   const requiredMet = requiredSignals.filter(s => s.met).length;
@@ -714,14 +713,16 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
   return {
     status,
     label,
-    checked_at: Date.now(),
+    evaluated: 'on-demand',
     signals: signals.map(s => ({ id: s.id, label: s.label, met: s.met })),
     gaps,
     summary: gaps.length ? gaps.map(g => g.label).join('; ') : 'All signals met.'
   };
 }
 
-function deriveReleasePacket(readiness, currentStageId, artifacts, latestHandoff) {
+function deriveReleasePacket(readiness, currentStageId, artifacts, handoffs) {
+  const releaseRelevantStages = ['test', 'release'];
+  const releaseCompletion = (handoffs || []).find(h => releaseRelevantStages.includes(h.from_stage)) || null;
   const artifactMap = {};
   (artifacts || []).forEach(a => { artifactMap[a.id] = a; });
   const keyArtifactIds = ['release-plan', 'runbook', 'test-strategy'];
@@ -744,8 +745,6 @@ function deriveReleasePacket(readiness, currentStageId, artifacts, latestHandoff
     nextReleaseStep = 'Create the release plan artifact.';
   } else if (!signalMap['runbook-exists'] || !signalMap['runbook-exists'].met) {
     nextReleaseStep = 'Create the runbook artifact.';
-  } else if (!signalMap['release-stage-started'] || !signalMap['release-stage-started'].met) {
-    nextReleaseStep = 'Start the release stage.';
   } else {
     nextReleaseStep = 'Product is ready for release candidate review.';
   }
@@ -753,7 +752,7 @@ function deriveReleasePacket(readiness, currentStageId, artifacts, latestHandoff
   return {
     current_stage: currentStageId || '',
     readiness_status: readiness.status,
-    latest_completion: latestHandoff || null,
+    latest_completion: releaseCompletion,
     key_artifacts: keyArtifacts,
     open_gaps: readiness.gaps,
     next_release_step: nextReleaseStep
@@ -778,7 +777,7 @@ function deriveOperateLite(artifacts, pipeline, readiness) {
   return {
     runbook_status: runbookExists ? 'present' : 'missing',
     runbook_path: runbook ? (runbook.path || '') : '',
-    last_readiness_check: readiness.checked_at || Date.now(),
+    last_readiness_check: 'on-demand',
     operational_notes: '',
     next_post_release_action: nextAction
   };
@@ -1089,7 +1088,7 @@ class ProductService {
     const currentRun = this.runCoordinatorService.getHydratedCurrentRun(product.product_id, runContext);
     const recentRuns = this.runCoordinatorService.getHydratedRuns(product.product_id, runContext).slice(0, 5);
     const readiness = deriveReadiness(product, artifacts, pipeline, handoffs);
-    const releasePacket = deriveReleasePacket(readiness, currentStageId, artifacts, handoffs[0] || null);
+    const releasePacket = deriveReleasePacket(readiness, currentStageId, artifacts, handoffs);
     const operateLite = deriveOperateLite(artifacts, pipeline, readiness);
     const nextActions = deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, knowledge.stage_recommendations || [], readiness);
 

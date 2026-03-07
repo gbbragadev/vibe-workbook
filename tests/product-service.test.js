@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { ProductService } = require('../src/core/product-service');
+const { ProductService, deriveReadiness } = require('../src/core/product-service');
 const { KnowledgePackService } = require('../src/core/knowledge-pack-service');
 const { RunCoordinatorService } = require('../src/core/run-coordinator-service');
 
@@ -1325,4 +1325,116 @@ test('createProduct rejects duplicate product ids and invalid directories', () =
     create_minimal_structure: false
   }, {});
   assert.equal(missingDir.status, 400);
+});
+
+// --- Phase 2H readiness tests ---
+
+test('deriveReadiness returns not-ready when no artifacts or stages are complete', () => {
+  const result = deriveReadiness({}, [], [
+    { stage_id: 'implementation', status: 'not-started' },
+    { stage_id: 'test', status: 'not-started' },
+    { stage_id: 'release', status: 'not-started' }
+  ], []);
+  assert.equal(result.status, 'not-ready');
+  assert.equal(result.label, 'Not ready');
+  assert.equal(result.signals.length, 5);
+  assert.equal(result.signals.filter(s => s.met).length, 0);
+  assert.equal(result.gaps.length, 5);
+  assert.ok(result.gaps.every(g => g.severity === 'required'));
+  assert.equal(result.evaluated, 'on-demand');
+});
+
+test('deriveReadiness returns needs-evidence when 3 of 5 required signals are met', () => {
+  const result = deriveReadiness({}, [
+    { id: 'test-strategy', exists: true },
+    { id: 'release-plan', exists: true },
+    { id: 'runbook', exists: true }
+  ], [
+    { stage_id: 'implementation', status: 'not-started' },
+    { stage_id: 'test', status: 'not-started' },
+    { stage_id: 'release', status: 'not-started' }
+  ], []);
+  assert.equal(result.status, 'needs-evidence');
+  assert.equal(result.signals.filter(s => s.met).length, 3);
+  assert.equal(result.gaps.length, 2);
+});
+
+test('deriveReadiness returns ready-for-release-candidate when all 5 required signals met', () => {
+  const result = deriveReadiness({}, [
+    { id: 'test-strategy', exists: true },
+    { id: 'release-plan', exists: true },
+    { id: 'runbook', exists: true }
+  ], [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'done' },
+    { stage_id: 'release', status: 'not-started' }
+  ], []);
+  assert.equal(result.status, 'ready-for-release-candidate');
+  assert.equal(result.signals.filter(s => s.met).length, 5);
+  assert.equal(result.gaps.length, 0);
+  assert.equal(result.summary, 'All signals met.');
+});
+
+test('deriveReadiness returns needs-evidence with test done + artifacts incomplete', () => {
+  const result = deriveReadiness({}, [
+    { id: 'test-strategy', exists: true },
+    { id: 'release-plan', exists: false },
+    { id: 'runbook', exists: false }
+  ], [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'done' },
+    { stage_id: 'release', status: 'not-started' }
+  ], []);
+  assert.equal(result.status, 'needs-evidence');
+  assert.equal(result.signals.filter(s => s.met).length, 3);
+  const gapIds = result.gaps.map(g => g.id);
+  assert.ok(gapIds.includes('release-plan-exists'));
+  assert.ok(gapIds.includes('runbook-exists'));
+});
+
+test('deriveReadiness does not include removed weak signals', () => {
+  const result = deriveReadiness({}, [], [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'done' },
+    { stage_id: 'release', status: 'in-progress' }
+  ], [{ handoff_id: 'h1' }]);
+  assert.ok(!result.signals.find(s => s.id === 'has-completion-history'));
+  assert.ok(!result.signals.find(s => s.id === 'release-stage-started'));
+  assert.equal(result.signals.length, 5);
+});
+
+test('product snapshot includes readiness, release_packet and operate_lite', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'repo');
+  fs.mkdirSync(repoDir, { recursive: true });
+  const service = makeProductService(dir);
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [{
+      product_id: 'readiness-test',
+      name: 'Readiness Test',
+      slug: 'readiness-test',
+      status: 'active',
+      stage: 'brief',
+      owner: 'test',
+      category: 'product',
+      summary: 'Test readiness',
+      repo: { local_path: repoDir },
+      workspace: {},
+      platform: {},
+      governance: {},
+      timestamps: {}
+    }]
+  }, null, 2));
+  const svc = makeProductService(dir, { registryFile });
+  const detail = svc.getProductDetail('readiness-test', [], []);
+  assert.ok(detail.readiness);
+  assert.equal(detail.readiness.status, 'not-ready');
+  assert.equal(detail.readiness.evaluated, 'on-demand');
+  assert.ok(detail.release_packet);
+  assert.equal(detail.release_packet.latest_completion, null);
+  assert.ok(detail.operate_lite);
+  assert.equal(detail.operate_lite.last_readiness_check, 'on-demand');
+  assert.equal(detail.operate_lite.runbook_status, 'missing');
 });
