@@ -60,6 +60,48 @@ Essa camada documenta, registra e classifica produtos sem interferir no runtime.
 - Um produto pode ter mais de um workspace legado associado.
 - Nem todo workspace legado esta governado corretamente hoje.
 
+## Execution Hierarchy
+
+A hierarquia conceitual atual do app passa a ser:
+
+- `Product` -> unidade principal da experiencia e do delivery
+- `Run Coordinator` -> unidade de execucao coordenada por etapa
+- `Session` -> executor operado por um runtime especifico
+- `Runtime Workspace` -> contexto operacional legado usado pelas sessoes
+- `Handoff` -> continuidade rastreavel entre uma etapa e a seguinte
+
+O runtime legado continua centrado em `workspace + session`, mas a UX do produto agora se organiza por `product + run + handoff`.
+
+## Current Guided Execution Model
+
+O Product Detail atual ja oferece um fluxo operacional minimo:
+
+- pipeline por etapa
+- `next actions` executaveis
+- `current run` com objetivo, runtime, outputs e knowledge driver
+- `handoff history` por produto
+- continuidade simples baseada no `handoff mais recente` da etapa de entrada
+
+Regras atuais:
+
+- um `run` pode ser criado ou reutilizado para uma etapa do produto
+- uma `session` nasce vinculada a `product_id`, `stage_id`, `run_id` e `role`
+- um `handoff` snapshota outputs esperados, outputs produzidos e knowledge driver do run
+- a etapa seguinte pode usar esse handoff como contexto do prompt guiado
+
+Isso ainda nao e uma engine formal de workflow. E uma camada operacional leve sobre o runtime legado.
+
+## Knowledge In Execution
+
+`Knowledge Packs` continuam em modo `reference-first`, mas ja influenciam a execucao guiada:
+
+- `pm-skills` e o primeiro pack operacional oficial
+- presets recomendados por stage entram em `next actions`
+- o preset selecionado fica registrado no `run`
+- o prompt guiado recebe o contexto do preset
+
+O pack nao e instalado automaticamente, nao faz sync profundo e nao executa workflows externos de forma automatica nesta fase.
+
 ## Current Consolidated Catalog
 
 | Product ID | Category | Stage | Repo local consolidado | Observacao de workspace legado |

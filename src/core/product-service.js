@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { getKnowledgePackService } = require('./knowledge-pack-service');
+const { getRunCoordinatorService, buildExpectedOutputs } = require('./run-coordinator-service');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const REGISTRY_FILE = path.join(ROOT_DIR, 'products', 'registry', 'products.json');
@@ -216,6 +217,69 @@ function deriveCurrentStageId(pipeline, fallbackStageId = 'idea') {
   return fallbackStageId || 'idea';
 }
 
+function getStageKnowledge(stageRecommendations, stageId) {
+  return (stageRecommendations || []).find((item) => item.stage_id === stageId) || null;
+}
+
+function getDefaultKnowledgePreset(stageRecommendations, stageId) {
+  const stageKnowledge = getStageKnowledge(stageRecommendations, stageId);
+  if (!stageKnowledge) return null;
+  return stageKnowledge.default_preset || null;
+}
+
+function getLatestIncomingHandoff(handoffs, stageId) {
+  return (handoffs || [])
+    .filter((handoff) => handoff.to_stage === stageId)
+    .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0] || null;
+}
+
+function getLatestOutgoingHandoff(handoffs, stageId) {
+  return (handoffs || [])
+    .filter((handoff) => handoff.from_stage === stageId)
+    .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0] || null;
+}
+
+function hydrateHandoffRecord(handoff, run = null) {
+  if (!handoff) return null;
+  const expectedOutputs = Array.isArray(handoff.expected_outputs_snapshot)
+    ? handoff.expected_outputs_snapshot
+    : (Array.isArray(run?.expected_outputs) ? run.expected_outputs : []);
+  const producedOutputs = Array.isArray(handoff.produced_outputs_snapshot)
+    ? handoff.produced_outputs_snapshot
+    : (Array.isArray(run?.produced_outputs) ? run.produced_outputs : []);
+  const knowledgeDriver = handoff.knowledge_driver || (run?.knowledge_driver || (run?.knowledge_pack_id ? {
+    knowledge_pack_id: run.knowledge_pack_id,
+    knowledge_pack_name: run.knowledge_pack_name || run.knowledge_pack_id,
+    preset_type: run.preset_type || '',
+    preset_id: run.preset_id || '',
+    preset_label: run.preset_label || run.preset_id || '',
+    preset_origin: run.preset_origin || 'manual'
+  } : null));
+
+  return {
+    ...handoff,
+    run_id: handoff.run_id || run?.run_id || '',
+    output_refs: Array.isArray(handoff.output_refs) ? handoff.output_refs : [],
+    expected_outputs_snapshot: expectedOutputs,
+    produced_outputs_snapshot: producedOutputs,
+    knowledge_driver: knowledgeDriver
+  };
+}
+
+function enrichWithKnowledgeDriver(target, preset, opts = {}) {
+  if (!preset) return target;
+  return {
+    ...target,
+    knowledge_pack_id: preset.knowledge_pack_id || preset.preset_source_pack_id || '',
+    knowledge_pack_name: preset.knowledge_pack_name || preset.knowledge_pack_id || preset.preset_source_pack_id || '',
+    preset_type: preset.preset_type || '',
+    preset_id: preset.preset_id || '',
+    preset_label: preset.preset_label || preset.preset_id || '',
+    preset_origin_stage: opts.stage_id || target.step_id || target.stage_id || '',
+    preset_origin: opts.preset_origin || target.preset_origin || ''
+  };
+}
+
 function buildRelatedSessions(product, sessions) {
   const workspaceId = product?.workspace?.runtime_workspace_id || '';
   return sessions
@@ -231,6 +295,7 @@ function buildRelatedSessions(product, sessions) {
       model: session.model || '',
       effort: session.effort || '',
       role: session.role || '',
+      runId: session.runId || '',
       stageId: session.stageId || '',
       workspaceId: session.workspaceId || '',
       workingDir: session.workingDir || '',
@@ -239,24 +304,32 @@ function buildRelatedSessions(product, sessions) {
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
-function derivePipeline(product, artifacts, relatedSessions, handoffs) {
+function derivePipeline(product, artifacts, relatedSessions, handoffs, runs) {
   const artifactMap = getArtifactMap(artifacts);
   const repoExists = !!(product?.repo?.local_path && fileExists(product.repo.local_path));
 
   return STAGE_PRESETS.map((stage, index) => {
     const activeSession = relatedSessions.find((session) => session.stageId === stage.id && session.status === 'running');
+    const stageRuns = (runs || []).filter((run) => run.stage_id === stage.id);
+    const activeRun = stageRuns.find((run) => run.status === 'active' || run.status === 'in-progress') || null;
+    const completedRun = stageRuns.find((run) => run.status === 'completed') || null;
     const relevantHandoff = handoffs
       .filter((handoff) => handoff.from_stage === stage.id || handoff.to_stage === stage.id)
       .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0] || null;
+    const latestOutgoingHandoff = getLatestOutgoingHandoff(handoffs, stage.id);
+    const latestIncomingHandoff = getLatestIncomingHandoff(handoffs, stage.id);
     const artifactsComplete = stage.requiredArtifacts.every((artifactId) => artifactMap[artifactId] && artifactMap[artifactId].exists);
     const previousStagesDone = STAGE_PRESETS.slice(0, index).every((previousStage) => {
       const previousArtifactComplete = previousStage.requiredArtifacts.every((artifactId) => artifactMap[artifactId] && artifactMap[artifactId].exists);
       if (previousStage.id === 'idea') return !!(product.summary || product.name);
       if (previousStage.id === 'implementation') {
         return relatedSessions.some((session) => session.stageId === 'implementation') ||
-          handoffs.some((handoff) => handoff.from_stage === 'implementation');
+          handoffs.some((handoff) => handoff.from_stage === 'implementation') ||
+          (runs || []).some((run) => run.stage_id === 'implementation' && ['active', 'in-progress', 'completed'].includes(run.status));
       }
-      return previousArtifactComplete;
+      return previousArtifactComplete ||
+        handoffs.some((handoff) => handoff.from_stage === previousStage.id) ||
+        (runs || []).some((run) => run.stage_id === previousStage.id && ['active', 'in-progress', 'completed'].includes(run.status));
     });
 
     let status = 'not-started';
@@ -264,13 +337,18 @@ function derivePipeline(product, artifacts, relatedSessions, handoffs) {
       status = product.summary ? 'done' : 'ready';
     } else if (!repoExists && stage.requiredArtifacts.length) {
       status = 'blocked';
+    } else if (activeRun) {
+      status = 'in-progress';
+    } else if (latestOutgoingHandoff || completedRun) {
+      status = 'done';
     } else if (activeSession) {
       status = 'in-progress';
     } else if (artifactsComplete) {
       status = 'done';
     } else if (stage.id === 'implementation') {
       const anyImplementation = relatedSessions.some((session) => session.stageId === 'implementation') ||
-        handoffs.some((handoff) => handoff.from_stage === 'implementation');
+        handoffs.some((handoff) => handoff.from_stage === 'implementation') ||
+        (runs || []).some((run) => run.stage_id === 'implementation' && ['active', 'in-progress', 'completed'].includes(run.status));
       status = anyImplementation ? 'done' : (previousStagesDone ? 'ready' : 'not-started');
     } else if (previousStagesDone) {
       status = 'ready';
@@ -285,89 +363,122 @@ function derivePipeline(product, artifacts, relatedSessions, handoffs) {
       allowed_runtime_agents: stage.allowedRuntimeAgents,
       required_artifacts: stage.requiredArtifacts,
       status,
+      active_run_id: activeRun ? activeRun.run_id : '',
       active_session_id: activeSession ? activeSession.id : '',
       active_session_name: activeSession ? activeSession.name : '',
       latest_handoff: relevantHandoff,
+      latest_incoming_handoff: latestIncomingHandoff,
       artifacts_complete: artifactsComplete
     };
   });
 }
 
-function deriveNextActions(product, artifacts, pipeline, relatedSessions) {
+function deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, stageRecommendations) {
   const nextActions = [];
-  const workspaceStatus = product?.workspace?.path_status || 'unknown';
-  const workspaceId = product?.workspace?.runtime_workspace_id || '';
+  const artifactMap = getArtifactMap(artifacts);
 
-  if (workspaceStatus === 'mismatched') {
-    nextActions.push({
-      action_type: 'governance',
-      step_id: '',
-      label: 'Review workspace mapping',
-      reason: 'Current workspace points to a different repository than the product repo.',
+  if (currentRun && (currentRun.status === 'active' || currentRun.status === 'in-progress')) {
+    const runStage = pipeline.find((step) => step.stage_id === currentRun.stage_id);
+    const previousHandoff = getLatestIncomingHandoff(currentRun.incoming_handoffs || [], currentRun.stage_id) || null;
+    const continuedAction = {
+      id: `continue:${currentRun.run_id}`,
+      action_type: 'continue-run',
+      step_id: currentRun.stage_id,
+      run_id: currentRun.run_id,
+      label: `Continue ${currentRun.stage_label || currentRun.stage_id} run`,
+      reason: 'There is an active coordinated run for this product.',
       priority: 'high'
-    });
-  } else if (workspaceStatus === 'invalid') {
-    nextActions.push({
-      action_type: 'governance',
-      step_id: '',
-      label: 'Fix legacy workspace path',
-      reason: 'The linked runtime workspace still points to an invalid directory.',
-      priority: 'high'
-    });
-  } else if (!workspaceId) {
-    nextActions.push({
-      action_type: 'governance',
-      step_id: '',
-      label: 'Associate a runtime workspace',
-      reason: 'This product has no linked workspace for terminal execution.',
-      priority: 'medium'
-    });
-  }
-
-  const runningStage = pipeline.find((step) => step.status === 'in-progress');
-  if (runningStage) {
-    nextActions.push({
-      action_type: 'continue-stage',
-      step_id: runningStage.stage_id,
-      label: `Continue ${runningStage.label}`,
-      reason: `A ${runningStage.label.toLowerCase()} session is already running for this product.`,
-      priority: 'high'
-    });
+      ,objective: currentRun.objective || (runStage ? runStage.goal : ''),
+      recommended_role: currentRun.role || (runStage ? runStage.recommended_role : ''),
+      recommended_runtime_agent: currentRun.suggested_runtime_agent || (runStage ? runStage.recommended_runtime_agent : ''),
+      expected_outputs: currentRun.expected_outputs || [],
+      uses_previous_handoff: !!previousHandoff,
+      previous_handoff_id: previousHandoff ? previousHandoff.handoff_id : '',
+      previous_handoff_summary: previousHandoff ? previousHandoff.summary : '',
+      executable: true
+    };
+    nextActions.push(enrichWithKnowledgeDriver(continuedAction, currentRun.knowledge_driver || (currentRun.knowledge_pack_id ? currentRun : null) || getDefaultKnowledgePreset(stageRecommendations, currentRun.stage_id), {
+      stage_id: currentRun.stage_id,
+      preset_origin: currentRun.preset_origin || 'next-action'
+    }));
   }
 
   const firstReady = pipeline.find((step) => step.status === 'ready');
-  if (firstReady) {
-    nextActions.push({
-      action_type: 'start-stage',
+  if (firstReady && (!currentRun || currentRun.stage_id !== firstReady.stage_id || (currentRun.status !== 'active' && currentRun.status !== 'in-progress'))) {
+    const previousHandoff = getLatestIncomingHandoff([firstReady.latest_incoming_handoff].filter(Boolean), firstReady.stage_id) || null;
+    const startAction = {
+      id: `start:${firstReady.stage_id}`,
+      action_type: 'start-run',
       step_id: firstReady.stage_id,
-      label: `Start ${firstReady.label}`,
+      label: `Start ${firstReady.label} run`,
       reason: `This is the next delivery step recommended by the current artifact state.`,
-      priority: 'medium'
-    });
+      priority: 'medium',
+      objective: firstReady.goal,
+      recommended_role: firstReady.recommended_role,
+      recommended_runtime_agent: firstReady.recommended_runtime_agent,
+      expected_outputs: buildExpectedOutputs(firstReady, artifactMap),
+      uses_previous_handoff: !!previousHandoff,
+      previous_handoff_id: previousHandoff ? previousHandoff.handoff_id : '',
+      previous_handoff_summary: previousHandoff ? previousHandoff.summary : '',
+      executable: true
+    };
+    nextActions.push(enrichWithKnowledgeDriver(startAction, getDefaultKnowledgePreset(stageRecommendations, firstReady.stage_id), {
+      stage_id: firstReady.stage_id,
+      preset_origin: 'next-action'
+    }));
   }
 
   const missingCoreArtifact = artifacts.find((artifact) => !artifact.exists && !artifact.optional);
   if (missingCoreArtifact) {
-    nextActions.push({
-      action_type: 'artifact',
-      step_id: inferStepFromArtifact(missingCoreArtifact.id),
+    const stageId = inferStepFromArtifact(missingCoreArtifact.id);
+    const stage = pipeline.find((item) => item.stage_id === stageId);
+    const previousHandoff = stage ? getLatestIncomingHandoff([stage.latest_incoming_handoff].filter(Boolean), stageId) : null;
+    const artifactAction = {
+      id: `artifact:${missingCoreArtifact.id}`,
+      action_type: 'produce-output',
+      step_id: stageId,
       label: `Create ${missingCoreArtifact.label}`,
       reason: 'A core product artifact is still missing.',
-      priority: 'medium'
-    });
+      priority: 'medium',
+      objective: stage ? `Produce ${missingCoreArtifact.label} to move ${stage.label} forward.` : `Produce ${missingCoreArtifact.label}.`,
+      recommended_role: stage ? stage.recommended_role : '',
+      recommended_runtime_agent: stage ? stage.recommended_runtime_agent : '',
+      expected_outputs: stage ? buildExpectedOutputs(stage, artifactMap) : [],
+      artifact_id: missingCoreArtifact.id,
+      uses_previous_handoff: !!previousHandoff,
+      previous_handoff_id: previousHandoff ? previousHandoff.handoff_id : '',
+      previous_handoff_summary: previousHandoff ? previousHandoff.summary : '',
+      executable: !!stage
+    };
+    nextActions.push(enrichWithKnowledgeDriver(artifactAction, getDefaultKnowledgePreset(stageRecommendations, stageId), {
+      stage_id: stageId,
+      preset_origin: 'next-action'
+    }));
   }
 
   if (!relatedSessions.length) {
-    nextActions.push({
-      action_type: 'session',
-      step_id: '',
-      label: 'Create first guided session',
+    const bootstrapAction = {
+      id: 'bootstrap:idea',
+      action_type: 'start-run',
+      step_id: 'idea',
+      label: 'Create first guided run',
       reason: 'There is no session linked to this product yet.',
-      priority: 'low'
-    });
+      priority: 'low',
+      objective: 'Create the first coordinated execution for this product.',
+      recommended_role: 'product-designer',
+      recommended_runtime_agent: 'claude',
+      expected_outputs: [],
+      executable: true
+    };
+    nextActions.push(enrichWithKnowledgeDriver(bootstrapAction, getDefaultKnowledgePreset(stageRecommendations, 'idea'), {
+      stage_id: 'idea',
+      preset_origin: 'next-action'
+    }));
   }
 
-  return nextActions.slice(0, 4);
+  return nextActions
+    .filter((action, index, arr) => action.id && arr.findIndex((item) => item.id === action.id) === index)
+    .slice(0, 4);
 }
 
 function inferStepFromArtifact(artifactId) {
@@ -379,11 +490,46 @@ function inferStepFromArtifact(artifactId) {
   return '';
 }
 
+function buildGuidedPrompt(product, stage, run, expectedOutputs = [], previousHandoff = null) {
+  const outputLabels = (expectedOutputs || [])
+    .map((item) => item.label || item.ref_id || item.output_id)
+    .filter(Boolean);
+  const knowledgeDriver = run?.knowledge_driver || (run?.knowledge_pack_id ? {
+    knowledge_pack_name: run.knowledge_pack_name || run.knowledge_pack_id,
+    knowledge_pack_id: run.knowledge_pack_id,
+    preset_type: run.preset_type,
+    preset_id: run.preset_id,
+    preset_label: run.preset_label || run.preset_id
+  } : null);
+
+  return [
+    `Product: ${product.name}`,
+    product.summary ? `Summary: ${product.summary}` : '',
+    `Run: ${run.run_id}`,
+    `Stage: ${stage.label} (${stage.stage_id})`,
+    `Role: ${run.role || stage.recommended_role || ''}`,
+    `Objective: ${run.objective || stage.goal || ''}`,
+    knowledgeDriver ? `Knowledge Pack: ${knowledgeDriver.knowledge_pack_name} (${knowledgeDriver.knowledge_pack_id})` : '',
+    knowledgeDriver ? `Knowledge Preset: ${knowledgeDriver.preset_type} ${knowledgeDriver.preset_label || knowledgeDriver.preset_id}` : '',
+    previousHandoff ? `Previous handoff from: ${previousHandoff.from_stage || 'unknown'} -> ${previousHandoff.to_stage || stage.stage_id}` : '',
+    previousHandoff ? `Handoff summary: ${previousHandoff.summary || ''}` : '',
+    previousHandoff && Array.isArray(previousHandoff.output_refs) && previousHandoff.output_refs.length ? `Referenced outputs: ${previousHandoff.output_refs.join(', ')}` : '',
+    outputLabels.length ? `Expected outputs: ${outputLabels.join(', ')}` : '',
+    '',
+    'Work inside the current repository/runtime workspace context.',
+    'Advance only this stage.',
+    knowledgeDriver ? 'Use the referenced knowledge preset as operational guidance for this execution.' : '',
+    previousHandoff ? 'Use the previous stage handoff as the continuity baseline for this execution.' : '',
+    'When finished, leave a concise handoff-ready summary of what was produced, what remains, and the next recommended step.'
+  ].filter(Boolean).join('\n');
+}
+
 class ProductService {
   constructor(opts = {}) {
     this.registryFile = opts.registryFile || REGISTRY_FILE;
     this.handoffsFile = opts.handoffsFile || HANDOFFS_FILE;
     this.knowledgePackService = opts.knowledgePackService || getKnowledgePackService();
+    this.runCoordinatorService = opts.runCoordinatorService || getRunCoordinatorService();
   }
 
   getRegistry() {
@@ -447,14 +593,45 @@ class ProductService {
     const handoffs = productId
       ? data.handoffs.filter((handoff) => handoff.product_id === productId)
       : data.handoffs;
-    return handoffs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    const runsById = this.runCoordinatorService.listRuns(productId).reduce((acc, run) => {
+      acc[run.run_id] = run;
+      return acc;
+    }, {});
+    return handoffs
+      .map((handoff) => hydrateHandoffRecord(handoff, runsById[handoff.run_id] || null))
+      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   }
 
   createHandoff(productId, payload) {
     const data = normalizeHandoffs(readJson(this.handoffsFile, { version: 1, handoffs: [] }));
+    const product = this.getProductById(productId);
+    const explicitRunId = payload.run_id || '';
+    const currentRun = explicitRunId
+      ? this.runCoordinatorService.getRunById(explicitRunId)
+      : this.runCoordinatorService.getCurrentRun(productId);
+    const linkedRun = currentRun && currentRun.stage_id === (payload.from_stage || '') ? currentRun : null;
+    const artifacts = product ? this.getArtifacts(productId) || [] : [];
+    const pipeline = product ? derivePipeline(product, artifacts, [], data.handoffs, this.runCoordinatorService.listRuns(productId)) : [];
+    const runSnapshot = linkedRun
+      ? this.runCoordinatorService.hydrateRun(linkedRun, {
+        sessions: [],
+        handoffs: data.handoffs,
+        pipeline,
+        artifacts
+      })
+      : null;
+    const knowledgeDriver = runSnapshot?.knowledge_driver || (linkedRun && linkedRun.knowledge_pack_id ? {
+      knowledge_pack_id: linkedRun.knowledge_pack_id,
+      knowledge_pack_name: linkedRun.knowledge_pack_name || linkedRun.knowledge_pack_id,
+      preset_type: linkedRun.preset_type || '',
+      preset_id: linkedRun.preset_id || '',
+      preset_label: linkedRun.preset_label || linkedRun.preset_id || '',
+      preset_origin: linkedRun.preset_origin || 'manual'
+    } : null);
     const handoff = {
       handoff_id: 'handoff-' + crypto.randomBytes(4).toString('hex'),
       product_id: productId,
+      run_id: linkedRun ? linkedRun.run_id : explicitRunId,
       from_stage: payload.from_stage || '',
       to_stage: payload.to_stage || '',
       role: payload.role || '',
@@ -462,10 +639,19 @@ class ProductService {
       session_id: payload.session_id || '',
       summary: payload.summary || '',
       artifact_refs: Array.isArray(payload.artifact_refs) ? payload.artifact_refs : [],
+      output_refs: Array.isArray(payload.output_refs) ? payload.output_refs : [],
+      expected_outputs_snapshot: Array.isArray(runSnapshot?.expected_outputs) ? runSnapshot.expected_outputs : (Array.isArray(linkedRun?.expected_outputs) ? linkedRun.expected_outputs : []),
+      produced_outputs_snapshot: Array.isArray(runSnapshot?.produced_outputs) ? runSnapshot.produced_outputs : (Array.isArray(linkedRun?.produced_outputs) ? linkedRun.produced_outputs : []),
+      knowledge_driver: knowledgeDriver,
       created_at: Date.now()
     };
     data.handoffs.unshift(handoff);
     writeJsonAtomic(this.handoffsFile, data);
+
+    if (handoff.run_id) {
+      this.runCoordinatorService.linkHandoff(handoff.run_id, handoff);
+    }
+
     return handoff;
   }
 
@@ -479,12 +665,16 @@ class ProductService {
     const artifacts = ARTIFACT_DEFS.map((artifact) => resolveArtifact(product, artifact));
     const relatedSessions = buildRelatedSessions(product, sessions);
     const handoffs = this.getHandoffs(product.product_id);
-    const pipeline = derivePipeline(product, artifacts, relatedSessions, handoffs);
-    const nextActions = deriveNextActions(product, artifacts, pipeline, relatedSessions);
+    const rawRuns = this.runCoordinatorService.listRuns(product.product_id);
+    const pipeline = derivePipeline(product, artifacts, relatedSessions, handoffs, rawRuns);
     const linkedWorkspace = workspaces.find((workspace) => workspace.id === product?.workspace?.runtime_workspace_id) || null;
     const lastStep = getLastMeaningfulStep(pipeline);
     const currentStageId = deriveCurrentStageId(pipeline, lastStep ? lastStep.stage_id : 'idea');
     const knowledge = this.knowledgePackService.buildProductKnowledge(product, pipeline, currentStageId);
+    const runContext = { sessions: relatedSessions, handoffs, pipeline, artifacts };
+    const currentRun = this.runCoordinatorService.getHydratedCurrentRun(product.product_id, runContext);
+    const recentRuns = this.runCoordinatorService.getHydratedRuns(product.product_id, runContext).slice(0, 5);
+    const nextActions = deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, knowledge.stage_recommendations || []);
 
     return {
       product_id: product.product_id,
@@ -511,6 +701,14 @@ class ProductService {
       },
       knowledge_summary: knowledge.summary,
       active_knowledge_packs: knowledge.active_packs,
+      current_run: currentRun,
+      recent_runs: recentRuns,
+      handoff_summary: {
+        total: handoffs.length,
+        latest_handoff_id: handoffs[0]?.handoff_id || '',
+        latest_handoff_stage: handoffs[0]?.to_stage || handoffs[0]?.from_stage || ''
+      },
+      latest_handoff: handoffs[0] || null,
       next_actions: nextActions,
       related_sessions: relatedSessions.slice(0, 5),
       pipeline
@@ -534,7 +732,9 @@ class ProductService {
       handoffs,
       knowledge_packs: knowledge.active_packs,
       knowledge_stage_recommendations: knowledge.stage_recommendations,
-      current_stage_knowledge: knowledge.current_stage_recommendations
+      current_stage_knowledge: knowledge.current_stage_recommendations,
+      runs: snapshot.recent_runs || [],
+      current_run: snapshot.current_run || null
     };
   }
 
@@ -559,11 +759,25 @@ class ProductService {
     };
   }
 
+  getRuns(productId, workspaces, sessions) {
+    const detail = this.getProductDetail(productId, workspaces, sessions);
+    return detail ? (detail.runs || []) : null;
+  }
+
+  getCurrentRun(productId, workspaces, sessions) {
+    const detail = this.getProductDetail(productId, workspaces, sessions);
+    return detail ? (detail.current_run || null) : null;
+  }
+
   startStage(productId, stageId, payload, store) {
     const product = this.getProductById(productId);
     if (!product) return { error: 'Product not found', status: 404 };
     const stage = STAGE_PRESETS.find((item) => item.id === stageId);
     if (!stage) return { error: 'Stage not found', status: 404 };
+    const stageHandoffs = this.getHandoffs(productId);
+    const latestIncomingHandoff = (payload.previous_handoff_id
+      ? stageHandoffs.find((handoff) => handoff.handoff_id === payload.previous_handoff_id)
+      : null) || getLatestIncomingHandoff(stageHandoffs, stageId);
 
     const workspaceId = payload.workspaceId || product?.workspace?.runtime_workspace_id || '';
     const workingDir = payload.workingDir || product?.repo?.local_path || product?.workspace?.current_working_dir || '';
@@ -572,7 +786,41 @@ class ProductService {
     const effort = payload.effort || '';
     const role = stage.recommendedRole;
     const sessionName = payload.name || `${product.name} - ${stage.label}`;
-    const promptSeed = `${product.name} :: ${stage.label} :: ${role}`;
+    const stageForRun = {
+      stage_id: stage.id,
+      label: stage.label,
+      goal: payload.objective || stage.goal,
+      recommended_role: role,
+      recommended_runtime_agent: agent,
+      required_artifacts: stage.requiredArtifacts
+    };
+    const artifacts = this.getArtifacts(productId) || [];
+    const artifactMap = getArtifactMap(artifacts);
+    const knowledge = this.knowledgePackService.buildProductKnowledge(product, [{ ...stageForRun, status: 'ready' }], stageId);
+    const selectedPreset = payload.preset_id
+      ? {
+          knowledge_pack_id: payload.knowledge_pack_id || payload.preset_source_pack_id || '',
+          knowledge_pack_name: payload.knowledge_pack_name || payload.knowledge_pack_id || payload.preset_source_pack_id || '',
+          preset_type: payload.preset_type || '',
+          preset_id: payload.preset_id || '',
+          preset_label: payload.preset_label || payload.preset_id || ''
+        }
+      : getDefaultKnowledgePreset(knowledge.stage_recommendations || [], stageId);
+    const run = this.runCoordinatorService.createOrReuseRun(product, stageForRun, {
+      objective: payload.objective || stage.goal,
+      role,
+      suggested_runtime_agent: agent,
+      workspace_id: workspaceId,
+      expected_outputs: buildExpectedOutputs(stageForRun, artifactMap),
+      action_label: payload.actionLabel || `Start ${stage.label} run`,
+      knowledge_pack_id: selectedPreset?.knowledge_pack_id || '',
+      knowledge_pack_name: selectedPreset?.knowledge_pack_name || '',
+      preset_type: selectedPreset?.preset_type || '',
+      preset_id: selectedPreset?.preset_id || '',
+      preset_label: selectedPreset?.preset_label || '',
+      preset_origin: payload.presetOrigin || 'guided-stage'
+    });
+    const promptSeed = buildGuidedPrompt(product, stageForRun, run, run.expected_outputs || [], latestIncomingHandoff);
 
     const session = store.createSession({
       name: sessionName,
@@ -583,12 +831,88 @@ class ProductService {
       effort,
       resumeSessionId: '',
       productId,
+      runId: run.run_id,
       stageId,
       role,
-      promptSeed
+      promptSeed,
+      knowledgePackId: selectedPreset?.knowledge_pack_id || '',
+      knowledgePackName: selectedPreset?.knowledge_pack_name || '',
+      presetType: selectedPreset?.preset_type || '',
+      presetId: selectedPreset?.preset_id || '',
+      presetLabel: selectedPreset?.preset_label || ''
     });
+    this.runCoordinatorService.attachSession(run.run_id, session);
 
-    return { session, stage, product };
+    return { session, stage: stageForRun, product, run, previous_handoff: latestIncomingHandoff || null };
+  }
+
+  executeNextAction(productId, actionId, payload, store, workspaces, sessions) {
+    const detail = this.getProductDetail(productId, workspaces, sessions);
+    if (!detail) return { error: 'Product not found', status: 404 };
+
+    const action = (detail.next_actions || []).find((item) => item.id === actionId);
+    if (!action) return { error: 'Action not found', status: 404 };
+    if (!action.executable || !action.step_id) return { error: 'Action is not executable', status: 400 };
+
+    if (action.run_id) {
+      const currentRun = detail.current_run;
+      if (currentRun && currentRun.run_id === action.run_id) {
+        const currentSession = (currentRun.linked_sessions || [])[0] || null;
+        if (currentSession) {
+          const updatedRun = this.runCoordinatorService.createOrReuseRun(detail, {
+            stage_id: currentRun.stage_id,
+            label: currentRun.stage_label,
+            goal: currentRun.objective,
+            recommended_role: currentRun.role,
+            recommended_runtime_agent: currentRun.suggested_runtime_agent,
+            required_artifacts: (detail.pipeline || []).find((stage) => stage.stage_id === currentRun.stage_id)?.required_artifacts || []
+          }, {
+            objective: currentRun.objective,
+            role: currentRun.role,
+            suggested_runtime_agent: currentRun.suggested_runtime_agent,
+            workspace_id: currentRun.workspace_id,
+            expected_outputs: currentRun.expected_outputs,
+            action_label: action.label,
+            knowledge_pack_id: action.knowledge_pack_id || currentRun.knowledge_pack_id || '',
+            knowledge_pack_name: action.knowledge_pack_name || currentRun.knowledge_pack_name || '',
+            preset_type: action.preset_type || currentRun.preset_type || '',
+            preset_id: action.preset_id || currentRun.preset_id || '',
+            preset_label: action.preset_label || currentRun.preset_label || '',
+            preset_origin: action.preset_origin || currentRun.preset_origin || 'next-action'
+          });
+          return {
+            action,
+            product: detail,
+            run: updatedRun,
+            session: currentSession,
+            reused: true
+          };
+        }
+      }
+    }
+
+    const runtimeAgent = payload.runtimeAgent || action.recommended_runtime_agent || '';
+    const name = payload.name || `${detail.name} - ${action.step_id} run`;
+    const result = this.startStage(productId, action.step_id, {
+      ...payload,
+      runtimeAgent,
+      objective: action.objective || '',
+      actionLabel: action.label,
+      name,
+      knowledge_pack_id: action.knowledge_pack_id || '',
+      knowledge_pack_name: action.knowledge_pack_name || '',
+      preset_type: action.preset_type || '',
+      preset_id: action.preset_id || '',
+      preset_label: action.preset_label || '',
+      presetOrigin: 'next-action'
+    }, store);
+
+    if (result.error) return result;
+    return {
+      action,
+      ...result,
+      reused: false
+    };
   }
 }
 

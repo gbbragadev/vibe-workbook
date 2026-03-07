@@ -190,6 +190,19 @@ function createServer() {
     res.json(knowledge);
   });
 
+  app.get('/api/products/:id/runs', (req, res) => {
+    const runs = productService.getRuns(req.params.id, store.getWorkspaces(), store.getSessions());
+    if (!runs) return res.status(404).json({ error: 'Not found' });
+    res.json(runs);
+  });
+
+  app.get('/api/products/:id/runs/current', (req, res) => {
+    const product = productService.getProductById(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Not found' });
+    const run = productService.getCurrentRun(req.params.id, store.getWorkspaces(), store.getSessions());
+    res.json(run);
+  });
+
   app.get('/api/products/:id/stages', (req, res) => {
     const product = productService.getProductById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Not found' });
@@ -200,6 +213,40 @@ function createServer() {
     const result = productService.startStage(req.params.id, req.params.stage, req.body || {}, store);
     if (result.error) return res.status(result.status || 400).json({ error: result.error });
     res.status(201).json(result);
+  });
+
+  app.post('/api/products/:id/next-actions/execute', (req, res) => {
+    const { action_id } = req.body || {};
+    if (!action_id) return res.status(400).json({ error: 'action_id is required' });
+    const result = productService.executeNextAction(
+      req.params.id,
+      action_id,
+      req.body || {},
+      store,
+      store.getWorkspaces(),
+      store.getSessions()
+    );
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+
+    let started = false;
+    let pid = null;
+    if (result.session) {
+      const latestSession = store.getSession(result.session.id);
+      const isRunning = latestSession && latestSession.status === 'running';
+      if (!isRunning) {
+        const pty = ptyManager.spawn(result.session.id, req.body || {});
+        started = true;
+        pid = pty.pid;
+      } else {
+        pid = latestSession.pid || null;
+      }
+    }
+    res.status(201).json({
+      ...result,
+      session: result.session ? (store.getSession(result.session.id) || result.session) : null,
+      started,
+      pid
+    });
   });
 
   app.get('/api/products/:id/handoffs', (req, res) => {

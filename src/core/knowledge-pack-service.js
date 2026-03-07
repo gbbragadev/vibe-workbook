@@ -32,7 +32,26 @@ function dedupe(values) {
   return [...new Set((values || []).filter(Boolean))];
 }
 
+function normalizePreset(type, value, packId) {
+  if (!value) return null;
+  return {
+    preset_type: type,
+    preset_id: value,
+    preset_label: value,
+    preset_source_pack_id: packId
+  };
+}
+
 function normalizeRecommendation(pack, rec, stage) {
+  const workflowPresets = (Array.isArray(rec.recommended_workflows) ? rec.recommended_workflows : [])
+    .map((item) => normalizePreset('workflow', item, pack.id))
+    .filter(Boolean);
+  const skillPresets = (Array.isArray(rec.recommended_skills) ? rec.recommended_skills : [])
+    .map((item) => normalizePreset('skill', item, pack.id))
+    .filter(Boolean);
+  const availablePresets = [...workflowPresets, ...skillPresets];
+  const defaultPreset = workflowPresets[0] || skillPresets[0] || null;
+
   return {
     knowledge_pack_id: pack.id,
     knowledge_pack_name: pack.name,
@@ -43,7 +62,9 @@ function normalizeRecommendation(pack, rec, stage) {
     recommended_skills: Array.isArray(rec.recommended_skills) ? rec.recommended_skills : [],
     recommended_workflows: Array.isArray(rec.recommended_workflows) ? rec.recommended_workflows : [],
     recommended_roles: Array.isArray(rec.recommended_roles) ? rec.recommended_roles : [],
-    recommended_runtime_agents: Array.isArray(rec.recommended_runtime_agents) ? rec.recommended_runtime_agents : []
+    recommended_runtime_agents: Array.isArray(rec.recommended_runtime_agents) ? rec.recommended_runtime_agents : [],
+    available_presets: availablePresets,
+    default_preset: defaultPreset
   };
 }
 
@@ -140,6 +161,21 @@ class KnowledgePackService {
         status: stage.status,
         is_current: stage.stage_id === currentStageId,
         knowledge_pack_ids: dedupe(entries.map((entry) => entry.knowledge_pack_id)),
+        available_presets: entries.flatMap((entry) => (entry.available_presets || []).map((preset) => ({
+          ...preset,
+          knowledge_pack_id: entry.knowledge_pack_id,
+          knowledge_pack_name: entry.knowledge_pack_name
+        }))),
+        default_preset: (() => {
+          const selected = entries.find((entry) => entry.default_preset)?.default_preset;
+          if (!selected) return null;
+          const owner = entries.find((entry) => entry.knowledge_pack_id === selected.preset_source_pack_id);
+          return {
+            ...selected,
+            knowledge_pack_id: owner ? owner.knowledge_pack_id : selected.preset_source_pack_id,
+            knowledge_pack_name: owner ? owner.knowledge_pack_name : selected.preset_source_pack_id
+          };
+        })(),
         recommendations: entries
       };
     });

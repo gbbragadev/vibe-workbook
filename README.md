@@ -13,6 +13,9 @@ O repositorio passa a assumir oficialmente dois papeis separados:
 - governanca inicial de produtos e workspaces
 - templates minimos de produto
 - registry manual de produtos conhecidos
+- product cockpit com pipeline, next actions, current run e handoffs
+- knowledge packs curados com `pm-skills` como primeiro pack operacional
+- temas visuais com persistencia simples (`Midnight Indigo`, `Teal Signal`, `Ember Ops`)
 
 ## Runtime Features
 
@@ -24,6 +27,15 @@ O repositorio passa a assumir oficialmente dois papeis separados:
 - **Session History** - Search and filter all sessions by agent, project, or keyword
 - **Real-time Updates** - SSE for state changes, WebSocket for terminal I/O
 - **Local-first** - Everything runs on your machine, no cloud, no telemetry
+
+## Product Flow Features
+
+- **Products Overview** - lista produtos, stage, knowledge packs, current run e next action
+- **Product Detail** - mostra pipeline, current run, handoff history, knowledge e sessoes relacionadas
+- **Run Coordinator** - cada execucao guiada cria ou reutiliza um run ligado a produto, etapa, agente e sessoes
+- **Executable Next Actions** - acoes sugeridas podem iniciar uma execucao real com runtime recomendado
+- **Manual Assisted Handoff** - handoffs podem registrar summary, outputs, artifacts e continuidade entre etapas
+- **Knowledge-driven Execution** - presets do `pm-skills` entram no prompt guiado e no rastreamento do run
 
 ## Governance Layer
 
@@ -71,6 +83,24 @@ Agent Adapters (Claude / Codex / Gemini / Antigravity)
      ^
 JSON State (./state/workspaces.json)
 ```
+
+## Product Execution Model
+
+```text
+Product
+  -> Pipeline Stage
+  -> Run Coordinator
+       -> linked Sessions
+       -> produced / expected outputs
+       -> handoffs
+       -> knowledge driver
+  -> Runtime Workspace (operational context)
+```
+
+`Product` e a unidade principal da experiencia.
+`Runtime Workspace` e o contexto operacional legado.
+`Session` e o executor.
+`Run Coordinator` e a unidade de orquestracao da execucao guiada.
 
 ## Governance Structure
 

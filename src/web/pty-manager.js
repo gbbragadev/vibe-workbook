@@ -209,6 +209,22 @@ class PtyManager {
     });
     store.addSessionLog(sessionId, `Launched ${session.agent}: ${command}`);
 
+    if (session.promptSeed && session.promptSeedPending !== false && opts.injectPrompt !== false) {
+      const promptToSend = session.promptSeed.endsWith('\n') ? session.promptSeed : `${session.promptSeed}\r`;
+      setTimeout(() => {
+        try {
+          ptySession.write(promptToSend);
+          store.updateSession(sessionId, {
+            promptSeedPending: false,
+            promptSeedSentAt: Date.now()
+          });
+          store.addSessionLog(sessionId, 'Injected guided prompt seed');
+        } catch (e) {
+          store.addSessionLog(sessionId, `Prompt seed injection failed: ${e.message}`);
+        }
+      }, opts.promptDelayMs || 400);
+    }
+
     return ptySession;
   }
 
