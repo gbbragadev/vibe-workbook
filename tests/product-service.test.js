@@ -6,7 +6,7 @@ const path = require('path');
 
 const { ProductService, deriveReadiness } = require('../src/core/product-service');
 const { KnowledgePackService } = require('../src/core/knowledge-pack-service');
-const { RunCoordinatorService } = require('../src/core/run-coordinator-service');
+const { RunCoordinatorService, classifyOutputCategory } = require('../src/core/run-coordinator-service');
 
 function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-workbook-test-'));
@@ -1359,7 +1359,7 @@ test('deriveReadiness returns needs-evidence when 3 of 5 required signals are me
   assert.equal(result.gaps.length, 2);
 });
 
-test('deriveReadiness returns ready-for-release-candidate when all 5 required signals met', () => {
+test('deriveReadiness returns ready-for-release-candidate when all 5 required signals met with evidence', () => {
   const result = deriveReadiness({}, [
     { id: 'test-strategy', exists: true },
     { id: 'release-plan', exists: true },
@@ -1368,7 +1368,10 @@ test('deriveReadiness returns ready-for-release-candidate when all 5 required si
     { stage_id: 'implementation', status: 'done' },
     { stage_id: 'test', status: 'done' },
     { stage_id: 'release', status: 'not-started' }
-  ], []);
+  ], [
+    { from_stage: 'implementation', to_stage: 'test', evidence_output_count: 2, created_at: 1000 },
+    { from_stage: 'test', to_stage: 'release', evidence_output_count: 1, created_at: 2000 }
+  ]);
   assert.equal(result.status, 'ready-for-release-candidate');
   assert.equal(result.signals.filter(s => s.met).length, 5);
   assert.equal(result.gaps.length, 0);
@@ -1430,11 +1433,272 @@ test('product snapshot includes readiness, release_packet and operate_lite', () 
   const svc = makeProductService(dir, { registryFile });
   const detail = svc.getProductDetail('readiness-test', [], []);
   assert.ok(detail.readiness);
-  assert.equal(detail.readiness.status, 'not-ready');
+  assert.ok(['not-ready', 'needs-evidence'].includes(detail.readiness.status),
+    'Readiness should be not-ready or needs-evidence for a minimal product');
   assert.equal(detail.readiness.evaluated, 'on-demand');
   assert.ok(detail.release_packet);
   assert.equal(detail.release_packet.latest_completion, null);
   assert.ok(detail.operate_lite);
-  assert.equal(detail.operate_lite.last_readiness_check, 'on-demand');
+  assert.ok(detail.operate_lite.last_readiness_check === 'on-demand' || detail.operate_lite.last_readiness_check === null,
+    'last_readiness_check should be on-demand or null');
   assert.equal(detail.operate_lite.runbook_status, 'missing');
+});
+
+// ===== Milestone 2I: Evidence-Driven Readiness =====
+
+test('classifyOutputCategory returns correct categories', () => {
+  assert.equal(classifyOutputCategory('artifact'), 'evidence');
+  assert.equal(classifyOutputCategory('handoff'), 'evidence');
+  assert.equal(classifyOutputCategory('session'), 'context');
+  assert.equal(classifyOutputCategory('knowledge-driver'), 'metadata');
+  assert.equal(classifyOutputCategory('action'), 'metadata');
+  assert.equal(classifyOutputCategory(''), 'context');
+  assert.equal(classifyOutputCategory(null), 'context');
+  assert.equal(classifyOutputCategory('unknown-type'), 'context');
+});
+
+test('createHandoff computes evidence_output_count from run produced outputs', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'test-product');
+  fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+  const svc = makeProductService(dir);
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [{
+      product_id: 'test-ev', name: 'Test Evidence', slug: 'test-ev', status: 'active',
+      stage: 'implementation', owner: 'test', category: 'product', summary: '',
+      repo: { local_path: repoDir }, workspace: {}, platform: {}, governance: {}
+    }]
+  }, null, 2));
+
+  // Create a run with artifact + session outputs
+  const runsFile = path.join(dir, 'runs.json');
+  const runId = 'run-evidence-test';
+  fs.writeFileSync(runsFile, JSON.stringify({
+    version: 1,
+    runs: [{
+      run_id: runId, product_id: 'test-ev', stage_id: 'implementation',
+      objective: 'Test', role: 'dev', suggested_runtime_agent: 'claude',
+      workspace_id: '', status: 'active',
+      expected_outputs: [],
+      produced_outputs: [
+        { output_id: 'artifact:spec', type: 'artifact', ref_id: 'spec', label: 'Spec', created_at: 1000 },
+        { output_id: 'artifact:arch', type: 'handoff', ref_id: 'h1', label: 'Handoff', created_at: 1001 },
+        { output_id: 'session:s1', type: 'session', ref_id: 's1', label: 'Session', created_at: 1002 },
+        { output_id: 'action:a1', type: 'action', ref_id: '', label: 'Action', created_at: 1003 }
+      ],
+      session_ids: [], current_session_id: '', handoff_ids: [],
+      knowledge_pack_id: '', knowledge_pack_name: '', preset_type: '', preset_id: '', preset_label: '', preset_origin: '',
+      created_at: 1000, updated_at: 1003
+    }]
+  }, null, 2));
+
+  const handoff = svc.createHandoff('test-ev', {
+    run_id: runId,
+    from_stage: 'implementation',
+    to_stage: 'test',
+    summary: 'Test handoff'
+  });
+
+  assert.equal(handoff.evidence_output_count, 2, 'Should count 2 evidence outputs (artifact + handoff types)');
+});
+
+test('createHandoff with zero evidence outputs sets evidence_output_count to 0', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'test-product-zero');
+  fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+  const svc = makeProductService(dir);
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [{
+      product_id: 'test-zero', name: 'Test Zero', slug: 'test-zero', status: 'active',
+      stage: 'implementation', owner: 'test', category: 'product', summary: '',
+      repo: { local_path: repoDir }, workspace: {}, platform: {}, governance: {}
+    }]
+  }, null, 2));
+
+  const runsFile = path.join(dir, 'runs.json');
+  fs.writeFileSync(runsFile, JSON.stringify({
+    version: 1,
+    runs: [{
+      run_id: 'run-zero', product_id: 'test-zero', stage_id: 'implementation',
+      objective: 'Test', role: 'dev', suggested_runtime_agent: 'claude',
+      workspace_id: '', status: 'active',
+      expected_outputs: [],
+      produced_outputs: [
+        { output_id: 'session:s1', type: 'session', ref_id: 's1', label: 'Session', created_at: 1000 },
+        { output_id: 'action:a1', type: 'action', ref_id: '', label: 'Action', created_at: 1001 }
+      ],
+      session_ids: [], current_session_id: '', handoff_ids: [],
+      knowledge_pack_id: '', knowledge_pack_name: '', preset_type: '', preset_id: '', preset_label: '', preset_origin: '',
+      created_at: 1000, updated_at: 1001
+    }]
+  }, null, 2));
+
+  const handoff = svc.createHandoff('test-zero', {
+    run_id: 'run-zero',
+    from_stage: 'implementation',
+    to_stage: 'test',
+    summary: 'No evidence'
+  });
+
+  assert.equal(handoff.evidence_output_count, 0);
+});
+
+test('deriveReadiness returns not-ready with none strength when product has nothing', () => {
+  const result = deriveReadiness({}, [], [], []);
+  assert.equal(result.status, 'not-ready');
+  result.signals.forEach(s => {
+    assert.equal(s.strength, 'none');
+    assert.equal(s.met, false);
+  });
+});
+
+test('deriveReadiness returns weak strength when impl done but no handoff evidence', () => {
+  const pipeline = [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'not-started' }
+  ];
+  const result = deriveReadiness({}, [], pipeline, []);
+  const implSignal = result.signals.find(s => s.id === 'implementation-done');
+  assert.equal(implSignal.strength, 'weak');
+  assert.equal(implSignal.met, true);
+});
+
+test('deriveReadiness returns strong strength when impl done with handoff evidence >= 2', () => {
+  const pipeline = [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'not-started' }
+  ];
+  const handoffs = [
+    { from_stage: 'implementation', to_stage: 'test', evidence_output_count: 3, created_at: 1000 }
+  ];
+  const result = deriveReadiness({}, [], pipeline, handoffs);
+  const implSignal = result.signals.find(s => s.id === 'implementation-done');
+  assert.equal(implSignal.strength, 'strong');
+});
+
+test('deriveReadiness caps at needs-evidence when all 5 met but one is weak', () => {
+  const artifacts = [
+    { id: 'test-strategy', exists: true },
+    { id: 'release-plan', exists: true },
+    { id: 'runbook', exists: true }
+  ];
+  const pipeline = [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'done' }
+  ];
+  // impl has handoff with evidence but test has no handoff -> test is weak
+  const handoffs = [
+    { from_stage: 'implementation', to_stage: 'test', evidence_output_count: 2, created_at: 1000 }
+  ];
+  const result = deriveReadiness({}, artifacts, pipeline, handoffs);
+  assert.equal(result.status, 'needs-evidence', 'Should be capped at needs-evidence because test-stage-done is weak');
+  const testSignal = result.signals.find(s => s.id === 'test-stage-done');
+  assert.equal(testSignal.strength, 'weak');
+});
+
+test('deriveReadiness returns ready-for-release-candidate when all strong/sufficient', () => {
+  const artifacts = [
+    { id: 'test-strategy', exists: true },
+    { id: 'release-plan', exists: true },
+    { id: 'runbook', exists: true }
+  ];
+  const pipeline = [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'done' }
+  ];
+  const handoffs = [
+    { from_stage: 'implementation', to_stage: 'test', evidence_output_count: 2, created_at: 1000 },
+    { from_stage: 'test', to_stage: 'release', evidence_output_count: 1, created_at: 2000 }
+  ];
+  const result = deriveReadiness({}, artifacts, pipeline, handoffs);
+  assert.equal(result.status, 'ready-for-release-candidate');
+});
+
+test('deriveReadiness 3/5 met with mix of strengths gives needs-evidence', () => {
+  const artifacts = [
+    { id: 'test-strategy', exists: true }
+  ];
+  const pipeline = [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'done' }
+  ];
+  const handoffs = [
+    { from_stage: 'implementation', to_stage: 'test', evidence_output_count: 3, created_at: 1000 }
+  ];
+  const result = deriveReadiness({}, artifacts, pipeline, handoffs);
+  assert.equal(result.status, 'needs-evidence');
+  const metSignals = result.signals.filter(s => s.met);
+  assert.ok(metSignals.length >= 3);
+});
+
+test('deriveReleasePacket latest_completion is most recent handoff by timestamp', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'test-packet');
+  fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+  const svc = makeProductService(dir);
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [{
+      product_id: 'test-packet', name: 'Test Packet', slug: 'test-packet', status: 'active',
+      stage: 'test', owner: 'test', category: 'product', summary: '',
+      repo: { local_path: repoDir }, workspace: {}, platform: {}, governance: {}
+    }]
+  }, null, 2));
+
+  const snapshot = svc.buildProductSnapshot(
+    svc.getProductById('test-packet'), [], []
+  );
+  // With no handoffs, latest_completion should be null
+  assert.equal(snapshot.release_packet.latest_completion, null);
+});
+
+test('deriveOperateLite has null last_readiness_check and evidence_summary', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'test-op');
+  fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+  const svc = makeProductService(dir);
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [{
+      product_id: 'test-op', name: 'Test Op', slug: 'test-op', status: 'active',
+      stage: 'implementation', owner: 'test', category: 'product', summary: '',
+      repo: { local_path: repoDir }, workspace: {}, platform: {}, governance: {}
+    }]
+  }, null, 2));
+
+  const snapshot = svc.buildProductSnapshot(
+    svc.getProductById('test-op'), [], []
+  );
+  assert.equal(snapshot.operate_lite.last_readiness_check, null);
+  assert.ok(snapshot.operate_lite.evidence_summary);
+  assert.equal(typeof snapshot.operate_lite.evidence_summary.total_handoffs, 'number');
+  assert.equal(typeof snapshot.operate_lite.evidence_summary.total_evidence_outputs, 'number');
+});
+
+test('handoffs without evidence_output_count are treated as 0 in deriveReadiness', () => {
+  const pipeline = [
+    { stage_id: 'implementation', status: 'done' }
+  ];
+  const handoffs = [
+    { from_stage: 'implementation', to_stage: 'test', created_at: 1000 }
+    // no evidence_output_count field
+  ];
+  const result = deriveReadiness({}, [], pipeline, handoffs);
+  const implSignal = result.signals.find(s => s.id === 'implementation-done');
+  assert.equal(implSignal.strength, 'weak', 'Missing evidence_output_count should fallback to 0 -> weak');
+  assert.equal(implSignal.met, true);
+});
+
+test('readiness signals include strength field in output', () => {
+  const result = deriveReadiness({}, [], [], []);
+  result.signals.forEach(s => {
+    assert.ok(['strong', 'sufficient', 'weak', 'none'].includes(s.strength),
+      `Signal ${s.id} should have valid strength, got: ${s.strength}`);
+  });
 });

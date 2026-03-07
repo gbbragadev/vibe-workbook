@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { getKnowledgePackService } = require('./knowledge-pack-service');
-const { getRunCoordinatorService, buildExpectedOutputs } = require('./run-coordinator-service');
+const { getRunCoordinatorService, buildExpectedOutputs, classifyOutputCategory } = require('./run-coordinator-service');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const REGISTRY_FILE = path.join(ROOT_DIR, 'products', 'registry', 'products.json');
@@ -550,6 +550,16 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
     const implIdx = stageOrder.indexOf('implementation');
     const testIdx = stageOrder.indexOf('test');
 
+    const signalMap = {};
+    (readiness.signals || []).forEach(s => { signalMap[s.id] = s; });
+    function gapPriority(signalId) {
+      const s = signalMap[signalId];
+      if (!s) return 'medium';
+      if (s.strength === 'weak') return 'high';
+      if (s.strength === 'none') return 'medium';
+      return 'low';
+    }
+
     const releasePlanGap = readiness.gaps.find(g => g.id === 'release-plan-exists');
     const runbookGap = readiness.gaps.find(g => g.id === 'runbook-exists');
     const testGap = readiness.gaps.find(g => g.id === 'test-stage-done');
@@ -563,7 +573,7 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
         step_id: 'release',
         label: 'Prepare release plan',
         reason: 'Release plan artifact is missing — needed for release readiness.',
-        priority: 'medium',
+        priority: gapPriority('release-plan-exists'),
         artifact_id: 'release-plan',
         executable: true
       });
@@ -577,7 +587,7 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
         step_id: 'implementation',
         label: 'Fill runbook gap',
         reason: 'Runbook artifact is missing — needed for release readiness and operations.',
-        priority: 'medium',
+        priority: gapPriority('runbook-exists'),
         artifact_id: 'runbook',
         executable: true
       });
@@ -590,7 +600,7 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
         step_id: 'test',
         label: 'Complete test readiness',
         reason: 'Test stage is not yet complete — needed for release readiness.',
-        priority: 'medium',
+        priority: gapPriority('test-stage-done'),
         executable: true
       });
     }
@@ -676,27 +686,48 @@ function inferStepFromArtifact(artifactId) {
 }
 
 function deriveReadiness(product, artifacts, pipeline, handoffs) {
-  const signals = [];
   const artifactMap = {};
   (artifacts || []).forEach(a => { artifactMap[a.id] = a; });
   const pipelineMap = {};
   (pipeline || []).forEach(s => { pipelineMap[s.stage_id] = s; });
+  const handoffList = Array.isArray(handoffs) ? handoffs : [];
 
-  const implStage = pipelineMap['implementation'] || {};
-  signals.push({ id: 'implementation-done', label: 'Implementation stage completed (heuristic)', met: implStage.status === 'done', required: true });
-  signals.push({ id: 'test-strategy-exists', label: 'Test strategy artifact exists', met: !!(artifactMap['test-strategy'] && artifactMap['test-strategy'].exists), required: true });
-  const testStage = pipelineMap['test'] || {};
-  signals.push({ id: 'test-stage-done', label: 'Test stage completed', met: testStage.status === 'done', required: true });
-  signals.push({ id: 'release-plan-exists', label: 'Release plan artifact exists', met: !!(artifactMap['release-plan'] && artifactMap['release-plan'].exists), required: true });
-  signals.push({ id: 'runbook-exists', label: 'Runbook artifact exists', met: !!(artifactMap['runbook'] && artifactMap['runbook'].exists), required: true });
+  function stageSignalStrength(stageId) {
+    const stage = pipelineMap[stageId] || {};
+    if (stage.status !== 'done') return 'none';
+    const stageHandoffs = handoffList.filter(h => h.from_stage === stageId);
+    if (!stageHandoffs.length) return 'weak';
+    const maxEvidence = Math.max(0, ...stageHandoffs.map(h => h.evidence_output_count || 0));
+    if (maxEvidence >= 2) return 'strong';
+    if (maxEvidence >= 1) return 'sufficient';
+    return 'weak';
+  }
+
+  const signals = [];
+  const implStrength = stageSignalStrength('implementation');
+  signals.push({ id: 'implementation-done', label: 'Implementation stage completed', strength: implStrength, met: implStrength !== 'none', required: true });
+
+  const testStrategyExists = !!(artifactMap['test-strategy'] && artifactMap['test-strategy'].exists);
+  signals.push({ id: 'test-strategy-exists', label: 'Test strategy artifact exists', strength: testStrategyExists ? 'strong' : 'none', met: testStrategyExists, required: true });
+
+  const testStrength = stageSignalStrength('test');
+  signals.push({ id: 'test-stage-done', label: 'Test stage completed', strength: testStrength, met: testStrength !== 'none', required: true });
+
+  const releasePlanExists = !!(artifactMap['release-plan'] && artifactMap['release-plan'].exists);
+  signals.push({ id: 'release-plan-exists', label: 'Release plan artifact exists', strength: releasePlanExists ? 'strong' : 'none', met: releasePlanExists, required: true });
+
+  const runbookExists = !!(artifactMap['runbook'] && artifactMap['runbook'].exists);
+  signals.push({ id: 'runbook-exists', label: 'Runbook artifact exists', strength: runbookExists ? 'strong' : 'none', met: runbookExists, required: true });
 
   const requiredSignals = signals.filter(s => s.required);
   const requiredMet = requiredSignals.filter(s => s.met).length;
+  const hasWeakRequired = requiredSignals.some(s => s.met && s.strength === 'weak');
+
   let status, label;
-  if (requiredMet >= 5) {
+  if (requiredMet >= 5 && !hasWeakRequired) {
     status = 'ready-for-release-candidate';
     label = 'Ready for release candidate';
-  } else if (requiredMet >= 3) {
+  } else if (requiredMet >= 3 || hasWeakRequired) {
     status = 'needs-evidence';
     label = 'Needs more evidence';
   } else {
@@ -714,15 +745,15 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
     status,
     label,
     evaluated: 'on-demand',
-    signals: signals.map(s => ({ id: s.id, label: s.label, met: s.met })),
+    signals: signals.map(s => ({ id: s.id, label: s.label, met: s.met, strength: s.strength })),
     gaps,
     summary: gaps.length ? gaps.map(g => g.label).join('; ') : 'All signals met.'
   };
 }
 
 function deriveReleasePacket(readiness, currentStageId, artifacts, handoffs) {
-  const releaseRelevantStages = ['test', 'release'];
-  const releaseCompletion = (handoffs || []).find(h => releaseRelevantStages.includes(h.from_stage)) || null;
+  const sortedHandoffs = (handoffs || []).slice().sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  const releaseCompletion = sortedHandoffs[0] || null;
   const artifactMap = {};
   (artifacts || []).forEach(a => { artifactMap[a.id] = a; });
   const keyArtifactIds = ['release-plan', 'runbook', 'test-strategy'];
@@ -759,11 +790,14 @@ function deriveReleasePacket(readiness, currentStageId, artifacts, handoffs) {
   };
 }
 
-function deriveOperateLite(artifacts, pipeline, readiness) {
+function deriveOperateLite(artifacts, pipeline, readiness, handoffs) {
   const artifactMap = {};
   (artifacts || []).forEach(a => { artifactMap[a.id] = a; });
   const runbook = artifactMap['runbook'];
   const runbookExists = !!(runbook && runbook.exists);
+
+  const handoffList = Array.isArray(handoffs) ? handoffs : [];
+  const totalEvidenceOutputs = handoffList.reduce((sum, h) => sum + (h.evidence_output_count || 0), 0);
 
   let nextAction;
   if (readiness.status === 'ready-for-release-candidate') {
@@ -777,9 +811,13 @@ function deriveOperateLite(artifacts, pipeline, readiness) {
   return {
     runbook_status: runbookExists ? 'present' : 'missing',
     runbook_path: runbook ? (runbook.path || '') : '',
-    last_readiness_check: 'on-demand',
+    last_readiness_check: null,
     operational_notes: '',
-    next_post_release_action: nextAction
+    next_post_release_action: nextAction,
+    evidence_summary: {
+      total_handoffs: handoffList.length,
+      total_evidence_outputs: totalEvidenceOutputs
+    }
   };
 }
 
@@ -1041,6 +1079,8 @@ class ProductService {
       preset_label: linkedRun.preset_label || linkedRun.preset_id || '',
       preset_origin: linkedRun.preset_origin || 'manual'
     } : null);
+    const producedSnapshot = Array.isArray(runSnapshot?.produced_outputs) ? runSnapshot.produced_outputs : (Array.isArray(linkedRun?.produced_outputs) ? linkedRun.produced_outputs : []);
+    const evidenceOutputCount = producedSnapshot.filter(item => classifyOutputCategory(item.type) === 'evidence').length;
     const handoff = {
       handoff_id: 'handoff-' + crypto.randomBytes(4).toString('hex'),
       product_id: productId,
@@ -1056,7 +1096,8 @@ class ProductService {
       expected_outputs_snapshot: Array.isArray(runSnapshot?.expected_outputs) ? runSnapshot.expected_outputs : (Array.isArray(linkedRun?.expected_outputs) ? linkedRun.expected_outputs : []),
       produced_outputs_snapshot: Array.isArray(runSnapshot?.produced_outputs) ? runSnapshot.produced_outputs : (Array.isArray(linkedRun?.produced_outputs) ? linkedRun.produced_outputs : []),
       knowledge_driver: knowledgeDriver,
-      created_at: Date.now()
+      created_at: Date.now(),
+      evidence_output_count: evidenceOutputCount
     };
     data.handoffs.unshift(handoff);
     writeJsonAtomic(this.handoffsFile, data);
@@ -1089,7 +1130,7 @@ class ProductService {
     const recentRuns = this.runCoordinatorService.getHydratedRuns(product.product_id, runContext).slice(0, 5);
     const readiness = deriveReadiness(product, artifacts, pipeline, handoffs);
     const releasePacket = deriveReleasePacket(readiness, currentStageId, artifacts, handoffs);
-    const operateLite = deriveOperateLite(artifacts, pipeline, readiness);
+    const operateLite = deriveOperateLite(artifacts, pipeline, readiness, handoffs);
     const nextActions = deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, knowledge.stage_recommendations || [], readiness);
 
     return {

@@ -132,6 +132,14 @@ function isMeaningfulProducedOutput(item) {
   return !!type && !['session', 'knowledge-driver', 'action'].includes(type);
 }
 
+function classifyOutputCategory(type) {
+  const t = String(type || '').toLowerCase();
+  if (t === 'artifact' || t === 'handoff') return 'evidence';
+  if (t === 'session') return 'context';
+  if (t === 'knowledge-driver' || t === 'action') return 'metadata';
+  return 'context';
+}
+
 class RunCoordinatorService {
   constructor(opts = {}) {
     this.runsFile = opts.runsFile || RUNS_FILE;
@@ -340,6 +348,9 @@ class RunCoordinatorService {
       }
     }
 
+    for (const item of producedOutputs) {
+      if (!item.category) item.category = classifyOutputCategory(item.type);
+    }
     const sortedProducedOutputs = producedOutputs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
     const completionSummary = buildCompletionSummary(expectedOutputs, sortedProducedOutputs);
     const latestHandoff = linkedHandoffs[0] || null;
@@ -401,5 +412,6 @@ function getRunCoordinatorService() {
 module.exports = {
   RunCoordinatorService,
   getRunCoordinatorService,
-  buildExpectedOutputs
+  buildExpectedOutputs,
+  classifyOutputCategory
 };

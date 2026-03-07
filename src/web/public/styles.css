@@ -1153,3 +1153,84 @@ body {
     max-height: 220px;
   }
 }
+
+/* Signal Strength Badges */
+.signal-strength {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  margin-left: 6px;
+  letter-spacing: 1px;
+}
+
+.signal-strength.strong {
+  color: var(--success);
+}
+
+.signal-strength.sufficient {
+  color: var(--accent);
+}
+
+.signal-strength.weak {
+  color: var(--warning);
+}
+
+.signal-strength.none {
+  color: var(--text-muted);
+}
+
+/* Output Category Groups */
+.output-category-group {
+  margin-top: 10px;
+}
+
+.output-category-group-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Low Evidence Warning */
+.low-evidence-warning {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--warning-tint);
+  font-size: 13px;
+  color: var(--warning);
+  line-height: 1.45;
+}
+
+/* Evidence Summary in Operate Lite */
+.evidence-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.evidence-summary-stat {
+  padding: 10px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.evidence-summary-stat .product-stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+}
+
+.evidence-summary-stat .product-stat-value {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+}

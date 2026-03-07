@@ -491,7 +491,10 @@
     var releasePacket = detail.release_packet || {};
     var statusClass = readiness.status === 'ready-for-release-candidate' ? 'readiness-ready' : readiness.status === 'needs-evidence' ? 'readiness-needs-evidence' : 'readiness-not-ready';
     var signalsHtml = (readiness.signals || []).map(function(s) {
-      return '<div class="readiness-signal-row ' + (s.met ? 'met' : 'unmet') + '">' + (s.met ? '&#10003;' : '&#10007;') + ' ' + esc(s.label) + '</div>';
+      var strength = s.strength || 'none';
+      var dots = strength === 'strong' ? '●●●' : strength === 'sufficient' ? '●●' : strength === 'weak' ? '●' : '';
+      var strengthBadge = dots ? '<span class="signal-strength ' + strength + '" title="Signal strength: ' + strength + '">' + dots + '</span>' : '';
+      return '<div class="readiness-signal-row ' + (s.met ? 'met' : 'unmet') + '">' + (s.met ? '&#10003;' : '&#10007;') + ' ' + esc(s.label) + strengthBadge + '</div>';
     }).join('');
     var gapsHtml = (readiness.gaps || []).length
       ? '<div class="chip-row" style="margin-top:10px">' + readiness.gaps.map(function(g) { return '<span class="chip ' + (g.severity === 'required' ? 'warn' : 'subtle') + '">' + esc(g.label) + '</span>'; }).join('') + '</div>'
@@ -511,13 +514,19 @@
   function buildOperateLitePanel(detail) {
     var op = detail.operate_lite;
     if (!op) return '';
+    var evidenceSummary = op.evidence_summary || {};
+    var evidenceHtml = '<div class="evidence-summary">' +
+      '<div class="evidence-summary-stat"><div class="product-stat-label">Total Handoffs</div><div class="product-stat-value">' + (evidenceSummary.total_handoffs || 0) + '</div></div>' +
+      '<div class="evidence-summary-stat"><div class="product-stat-label">Evidence Outputs</div><div class="product-stat-value">' + (evidenceSummary.total_evidence_outputs || 0) + '</div></div>' +
+      '</div>';
     return '<section class="detail-panel"><div class="panel-header"><h3>Operate Lite</h3><span class="artifact-chip ' + (op.runbook_status === 'present' ? 'exists' : 'missing') + '">runbook: ' + esc(op.runbook_status) + '</span></div><div class="panel-body">' +
       '<div class="meta-list">' +
       metaItem('Runbook Status', op.runbook_status) +
       metaItem('Runbook Path', op.runbook_path || 'N/A') +
-      metaItem('Readiness Evaluation', op.last_readiness_check === 'on-demand' ? 'Evaluated on demand (per request)' : 'N/A') +
+      metaItem('Readiness Evaluation', 'On-demand (computed per request)') +
       metaItem('Operational Notes', op.operational_notes || 'None') +
       '</div>' +
+      evidenceHtml +
       (op.next_post_release_action ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Post-Release Action</span><p style="margin-top:6px;font-size:13px">' + esc(op.next_post_release_action) + '</p></div>' : '') +
       '</div></section>';
   }
@@ -853,6 +862,8 @@
     const defaultSessionId = primarySession ? (primarySession.id || '') : '';
     const currentKnowledge = linkedRun ? resolveRunKnowledge(linkedRun, detail) : null;
     const suggestedOutputs = pickCarryForwardOutputs(linkedRun);
+    const evidenceCount = (linkedRun && Array.isArray(linkedRun.produced_outputs)) ? linkedRun.produced_outputs.filter(function(item) { var cat = item.category || ''; return cat === 'evidence'; }).length : 0;
+    const lowEvidenceHtml = evidenceCount === 0 ? '<div class="low-evidence-warning">No concrete evidence outputs (artifacts, handoffs) will be registered in this handoff. Consider producing artifacts before completing this stage.</div>' : '';
     const selectedOutputRefs = suggestedOutputs.map(item => item.output_id || item.ref_id).filter(Boolean);
     const outputChecks = buildOutputChecklist(linkedRun ? (linkedRun.produced_outputs || []) : [], 'handoff-output', selectedOutputRefs, 'data-handoff-output-ref');
     const artifactChecks = buildOutputChecklist((detail.artifacts || []).filter(item => item.exists).map(item => ({
@@ -873,7 +884,7 @@
         (currentKnowledge ? '<div style="margin-top:10px">' + buildKnowledgeDriverInline(currentKnowledge) + '</div>' : '') +
         '</div></section>'
       : '<section class="dialog-section"><div class="dialog-section-title">Execution Context</div><div class="dialog-knowledge-block"><div class="artifact-row-meta">No active run is linked to this stage right now. This completion will still be saved manually.</div></div></section>';
-    showDialog('Complete Stage', runContext +
+    showDialog('Complete Stage', runContext + lowEvidenceHtml +
       '<section class="dialog-section"><div class="dialog-section-title">Suggested Handoff</div>' +
       '<label>From Stage</label><input type="text" value="' + esc(fromStage) + '" disabled>' +
       '<label>To Stage</label><select id="dlg-handoff-to">' + STAGE_ORDER.filter(stage => stage !== 'idea').map(stage => '<option value="' + stage + '"' + (stage === nextStage ? ' selected' : '') + '>' + esc(stage) + '</option>').join('') + '</select>' +
@@ -1246,11 +1257,14 @@
     const preferred = produced.filter(item => !['knowledge-driver', 'action', 'handoff'].includes(String(item.type || '').toLowerCase()));
     const base = preferred.length ? preferred : produced;
     const seen = new Set();
+    var categoryOrder = { evidence: 0, context: 1, metadata: 2 };
     return base.filter(item => {
       const key = [item.type || '', item.ref_id || item.output_id || '', item.label || ''].join('::');
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
+    }).sort(function(a, b) {
+      return (categoryOrder[a.category] || 1) - (categoryOrder[b.category] || 1);
     });
   }
 
@@ -1493,7 +1507,7 @@
       '</div>' +
       '<div class="run-body-grid">' +
         '<div class="run-card"><span class="meta-item-label">Expected Outputs</span>' + buildRunOutputList(expectedOutputs, 'No expected outputs declared.') + '</div>' +
-        '<div class="run-card"><span class="meta-item-label">Produced Outputs</span>' + buildRunOutputList(producedOutputs, 'No outputs registered yet.') + '</div>' +
+        '<div class="run-card"><span class="meta-item-label">Produced Outputs</span>' + buildCategorizedOutputList(producedOutputs) + '</div>' +
       '</div>' +
       (latestHandoff ? '<div class="run-card"><div class="product-row"><span class="meta-item-label">Latest Completion</span><span class="artifact-row-meta">' + esc(formatDateTime(latestHandoff.created_at)) + '</span></div><div class="handoff-summary">' + esc(latestHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((latestHandoff.from_stage || stageId) + ' -> ' + (latestHandoff.to_stage || 'unknown')) + '</div>' + ((run.next_stage_hint || latestHandoff.to_stage) ? '<div class="artifact-row-meta" style="margin-top:6px">Next stage hint: ' + esc(run.next_stage_hint || latestHandoff.to_stage) + '</div>' : '') + '</div>' : '') +
       '<div class="run-card" style="margin-top:12px"><div class="product-row"><span class="meta-item-label">Run Sessions</span><span class="artifact-row-meta">' + esc(String(runSessions.length)) + ' linked</span></div>' +
@@ -1509,6 +1523,27 @@
     const normalized = normalizeOutputRecords(items);
     if (!normalized.length) return '<p class="empty-subtext">' + esc(emptyText) + '</p>';
     return '<div class="run-output-list">' + normalized.map(item => '<div class="run-output-row"><span class="chip ' + (item.required ? 'warn' : 'subtle') + '">' + esc(item.label) + '</span>' + (item.type ? '<span class="artifact-row-meta">' + esc(item.type) + '</span>' : '') + '</div>').join('') + '</div>';
+  }
+
+  function buildCategorizedOutputList(items) {
+    var normalized = normalizeOutputRecords(items);
+    if (!normalized.length) return '<p class="empty-subtext">No outputs registered yet.</p>';
+    var groups = { evidence: [], context: [], metadata: [] };
+    normalized.forEach(function(item) {
+      var cat = item.category || 'context';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    });
+    var labels = { evidence: 'Evidence', context: 'Context', metadata: 'Metadata' };
+    var html = '';
+    ['evidence', 'context', 'metadata'].forEach(function(cat) {
+      if (!groups[cat] || !groups[cat].length) return;
+      html += '<div class="output-category-group"><div class="output-category-group-title">' + labels[cat] + ' (' + groups[cat].length + ')</div>';
+      html += '<div class="run-output-list">' + groups[cat].map(function(item) {
+        return '<div class="run-output-row"><span class="chip ' + (cat === 'evidence' ? 'ok' : cat === 'metadata' ? '' : 'subtle') + '">' + esc(item.label) + '</span>' + (item.type ? '<span class="artifact-row-meta">' + esc(item.type) + '</span>' : '') + '</div>';
+      }).join('') + '</div></div>';
+    });
+    return html;
   }
 
   function stageSignalClass(stageId) {
