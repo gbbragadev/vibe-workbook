@@ -482,7 +482,7 @@ function derivePipeline(product, artifacts, relatedSessions, handoffs, runs) {
   });
 }
 
-function deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, stageRecommendations) {
+function deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, stageRecommendations, readiness) {
   const nextActions = [];
   const artifactMap = getArtifactMap(artifacts);
 
@@ -540,7 +540,73 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
     }));
   }
 
-  const missingCoreArtifact = artifacts.find((artifact) => !artifact.exists && !artifact.optional);
+  // Gap-driven readiness actions
+  const gapCoveredArtifacts = new Set();
+  if (readiness && Array.isArray(readiness.gaps)) {
+    const stageOrder = ['idea', 'brief', 'spec', 'architecture', 'implementation', 'test', 'release', 'operate'];
+    const currentIdx = stageOrder.indexOf(pipeline.find(s => s.status === 'in-progress' || s.status === 'done')?.stage_id || 'idea');
+    const implIdx = stageOrder.indexOf('implementation');
+    const testIdx = stageOrder.indexOf('test');
+
+    const releasePlanGap = readiness.gaps.find(g => g.id === 'release-plan-exists');
+    const runbookGap = readiness.gaps.find(g => g.id === 'runbook-exists');
+    const testGap = readiness.gaps.find(g => g.id === 'test-stage-done');
+    const releasePlanArtifact = artifacts.find(a => a.id === 'release-plan');
+
+    if (releasePlanGap && currentIdx >= testIdx) {
+      gapCoveredArtifacts.add('release-plan');
+      nextActions.push({
+        id: 'gap:release-plan',
+        action_type: 'produce-output',
+        step_id: 'release',
+        label: 'Prepare release plan',
+        reason: 'Release plan artifact is missing — needed for release readiness.',
+        priority: 'medium',
+        artifact_id: 'release-plan',
+        executable: true
+      });
+    }
+
+    if (runbookGap && currentIdx >= implIdx) {
+      gapCoveredArtifacts.add('runbook');
+      nextActions.push({
+        id: 'gap:runbook',
+        action_type: 'produce-output',
+        step_id: 'implementation',
+        label: 'Fill runbook gap',
+        reason: 'Runbook artifact is missing — needed for release readiness and operations.',
+        priority: 'medium',
+        artifact_id: 'runbook',
+        executable: true
+      });
+    }
+
+    if (testGap && currentIdx >= implIdx) {
+      nextActions.push({
+        id: 'gap:test-readiness',
+        action_type: 'produce-output',
+        step_id: 'test',
+        label: 'Complete test readiness',
+        reason: 'Test stage is not yet complete — needed for release readiness.',
+        priority: 'medium',
+        executable: true
+      });
+    }
+
+    if (releasePlanArtifact && releasePlanArtifact.exists && testGap) {
+      nextActions.push({
+        id: 'gap:review-release-plan',
+        action_type: 'produce-output',
+        step_id: 'release',
+        label: 'Review release plan',
+        reason: 'Release plan exists but test stage is not complete — review for alignment.',
+        priority: 'low',
+        executable: false
+      });
+    }
+  }
+
+  const missingCoreArtifact = artifacts.find((artifact) => !artifact.exists && !artifact.optional && !gapCoveredArtifacts.has(artifact.id));
   if (missingCoreArtifact) {
     const stageId = inferStepFromArtifact(missingCoreArtifact.id);
     const stage = pipeline.find((item) => item.stage_id === stageId);
@@ -591,8 +657,10 @@ function deriveNextActions(product, artifacts, pipeline, relatedSessions, curren
     }));
   }
 
+  const priorityOrder = { high: 0, medium: 1, low: 2 };
   return nextActions
     .filter((action, index, arr) => action.id && arr.findIndex((item) => item.id === action.id) === index)
+    .sort((a, b) => (priorityOrder[a.priority] ?? 1) - (priorityOrder[b.priority] ?? 1))
     .slice(0, 4);
 }
 
@@ -603,6 +671,117 @@ function inferStepFromArtifact(artifactId) {
   if (artifactId === 'test-strategy') return 'test';
   if (artifactId === 'release-plan') return 'release';
   return '';
+}
+
+function deriveReadiness(product, artifacts, pipeline, handoffs) {
+  const signals = [];
+  const artifactMap = {};
+  (artifacts || []).forEach(a => { artifactMap[a.id] = a; });
+  const pipelineMap = {};
+  (pipeline || []).forEach(s => { pipelineMap[s.stage_id] = s; });
+
+  const implStage = pipelineMap['implementation'] || {};
+  signals.push({ id: 'implementation-done', label: 'Implementation stage completed', met: implStage.status === 'done', required: true });
+  signals.push({ id: 'test-strategy-exists', label: 'Test strategy artifact exists', met: !!(artifactMap['test-strategy'] && artifactMap['test-strategy'].exists), required: true });
+  const testStage = pipelineMap['test'] || {};
+  signals.push({ id: 'test-stage-done', label: 'Test stage completed', met: testStage.status === 'done', required: true });
+  signals.push({ id: 'release-plan-exists', label: 'Release plan artifact exists', met: !!(artifactMap['release-plan'] && artifactMap['release-plan'].exists), required: true });
+  signals.push({ id: 'runbook-exists', label: 'Runbook artifact exists', met: !!(artifactMap['runbook'] && artifactMap['runbook'].exists), required: true });
+  const releaseStage = pipelineMap['release'] || {};
+  signals.push({ id: 'release-stage-started', label: 'Release stage started', met: releaseStage.status === 'in-progress' || releaseStage.status === 'done', required: false });
+  signals.push({ id: 'has-completion-history', label: 'Has completion history', met: Array.isArray(handoffs) && handoffs.length > 0, required: false });
+
+  const requiredSignals = signals.filter(s => s.required);
+  const requiredMet = requiredSignals.filter(s => s.met).length;
+  let status, label;
+  if (requiredMet >= 5) {
+    status = 'ready-for-release-candidate';
+    label = 'Ready for release candidate';
+  } else if (requiredMet >= 3) {
+    status = 'needs-evidence';
+    label = 'Needs more evidence';
+  } else {
+    status = 'not-ready';
+    label = 'Not ready';
+  }
+
+  const gaps = signals.filter(s => !s.met).map(s => ({
+    id: s.id,
+    label: s.label,
+    severity: s.required ? 'required' : 'recommended'
+  }));
+
+  return {
+    status,
+    label,
+    checked_at: Date.now(),
+    signals: signals.map(s => ({ id: s.id, label: s.label, met: s.met })),
+    gaps,
+    summary: gaps.length ? gaps.map(g => g.label).join('; ') : 'All signals met.'
+  };
+}
+
+function deriveReleasePacket(readiness, currentStageId, artifacts, latestHandoff) {
+  const artifactMap = {};
+  (artifacts || []).forEach(a => { artifactMap[a.id] = a; });
+  const keyArtifactIds = ['release-plan', 'runbook', 'test-strategy'];
+  const keyArtifacts = keyArtifactIds.map(id => {
+    const a = artifactMap[id];
+    return { id, label: a ? a.label : id, exists: !!(a && a.exists), path: a ? (a.path || '') : '' };
+  });
+
+  const signalMap = {};
+  (readiness.signals || []).forEach(s => { signalMap[s.id] = s; });
+
+  let nextReleaseStep;
+  if (!signalMap['implementation-done'] || !signalMap['implementation-done'].met) {
+    nextReleaseStep = 'Complete implementation first.';
+  } else if (!signalMap['test-strategy-exists'] || !signalMap['test-strategy-exists'].met) {
+    nextReleaseStep = 'Create the test strategy artifact.';
+  } else if (!signalMap['test-stage-done'] || !signalMap['test-stage-done'].met) {
+    nextReleaseStep = 'Complete the test stage.';
+  } else if (!signalMap['release-plan-exists'] || !signalMap['release-plan-exists'].met) {
+    nextReleaseStep = 'Create the release plan artifact.';
+  } else if (!signalMap['runbook-exists'] || !signalMap['runbook-exists'].met) {
+    nextReleaseStep = 'Create the runbook artifact.';
+  } else if (!signalMap['release-stage-started'] || !signalMap['release-stage-started'].met) {
+    nextReleaseStep = 'Start the release stage.';
+  } else {
+    nextReleaseStep = 'Product is ready for release candidate review.';
+  }
+
+  return {
+    current_stage: currentStageId || '',
+    readiness_status: readiness.status,
+    latest_completion: latestHandoff || null,
+    key_artifacts: keyArtifacts,
+    open_gaps: readiness.gaps,
+    next_release_step: nextReleaseStep
+  };
+}
+
+function deriveOperateLite(artifacts, pipeline, readiness) {
+  const artifactMap = {};
+  (artifacts || []).forEach(a => { artifactMap[a.id] = a; });
+  const runbook = artifactMap['runbook'];
+  const runbookExists = !!(runbook && runbook.exists);
+
+  let nextAction;
+  if (readiness.status === 'ready-for-release-candidate') {
+    nextAction = runbookExists ? 'Review runbook and prepare for go-live.' : 'Create the runbook before go-live.';
+  } else if (readiness.status === 'needs-evidence') {
+    nextAction = 'Address remaining readiness gaps before considering operations.';
+  } else {
+    nextAction = 'Product is not yet ready for operational planning.';
+  }
+
+  return {
+    runbook_status: runbookExists ? 'present' : 'missing',
+    runbook_path: runbook ? (runbook.path || '') : '',
+    last_readiness_check: readiness.checked_at || Date.now(),
+    operational_notes: '',
+    next_post_release_action: nextAction
+  };
 }
 
 function buildGuidedPrompt(product, stage, run, expectedOutputs = [], previousHandoff = null) {
@@ -909,7 +1088,10 @@ class ProductService {
     const runContext = { sessions: relatedSessions, handoffs, pipeline, artifacts };
     const currentRun = this.runCoordinatorService.getHydratedCurrentRun(product.product_id, runContext);
     const recentRuns = this.runCoordinatorService.getHydratedRuns(product.product_id, runContext).slice(0, 5);
-    const nextActions = deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, knowledge.stage_recommendations || []);
+    const readiness = deriveReadiness(product, artifacts, pipeline, handoffs);
+    const releasePacket = deriveReleasePacket(readiness, currentStageId, artifacts, handoffs[0] || null);
+    const operateLite = deriveOperateLite(artifacts, pipeline, readiness);
+    const nextActions = deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, knowledge.stage_recommendations || [], readiness);
 
     return {
       product_id: product.product_id,
@@ -945,6 +1127,9 @@ class ProductService {
       },
       latest_handoff: handoffs[0] || null,
       latest_completion: handoffs[0] || null,
+      readiness,
+      release_packet: releasePacket,
+      operate_lite: operateLite,
       next_actions: nextActions,
       related_sessions: relatedSessions.slice(0, 5),
       pipeline
@@ -1163,5 +1348,6 @@ module.exports = {
   ProductService,
   getProductService,
   STAGE_PRESETS,
-  ARTIFACT_DEFS
+  ARTIFACT_DEFS,
+  deriveReadiness
 };
