@@ -1,38 +1,48 @@
 /* Vibe Workbook - Theme Tokens */
 :root {
-  --bg-primary: #0f0f14;
-  --bg-secondary: #16161e;
-  --bg-tertiary: #1e1e2e;
-  --bg-hover: #252535;
-  --bg-active: #2a2a3e;
-  --border: #2e2e40;
-  --border-light: #3e3e55;
-  --text-primary: #e0e0e8;
-  --text-secondary: #8888a0;
-  --text-muted: #5a5a70;
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
+  --bg-primary: #1c1c1e;
+  --bg-secondary: #2c2c2e;
+  --bg-tertiary: #3a3a3c;
+  --bg-hover: #48484a;
+  --bg-active: #545456;
+  --border: #48484a;
+  --border-light: #636366;
+  --text-primary: #f5f5f7;
+  --text-secondary: #8e8e93;
+  --text-muted: #636366;
+  --accent: #d4a574;
+  --accent-hover: #e0b888;
   --danger: #ef4444;
   --success: #10b981;
   --warning: #f59e0b;
   --claude-color: #d97706;
   --codex-color: #10b981;
   --antigravity-color: #4285f4;
-  --radius: 8px;
-  --radius-sm: 4px;
-  --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
   --sidebar-width: 260px;
   --header-height: 48px;
   --toolbar-height: 40px;
-  --header-glow: rgba(99, 102, 241, 0.12);
-  --panel-emphasis: rgba(99, 102, 241, 0.08);
-  --panel-emphasis-border: rgba(99, 102, 241, 0.22);
+  --header-glow: rgba(212, 165, 116, 0.12);
+  --panel-emphasis: rgba(212, 165, 116, 0.08);
+  --panel-emphasis-border: rgba(212, 165, 116, 0.22);
   --knowledge-tint: rgba(34, 211, 238, 0.08);
   --knowledge-border: rgba(34, 211, 238, 0.24);
   --warning-tint: rgba(245, 158, 11, 0.08);
   --danger-tint: rgba(239, 68, 68, 0.08);
   --success-tint: rgba(16, 185, 129, 0.08);
+  /* Glass morphism + depth tokens */
+  --glass-bg: rgba(44, 44, 46, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: 20px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --transition-default: 0.2s ease;
+  --accent-glow: 0 0 20px rgba(212, 165, 116, 0.15);
 }
 
 body[data-theme="teal"] {
@@ -56,6 +66,7 @@ body[data-theme="teal"] {
   --panel-emphasis-border: rgba(20, 184, 166, 0.22);
   --knowledge-tint: rgba(56, 189, 248, 0.08);
   --knowledge-border: rgba(56, 189, 248, 0.24);
+  --accent-glow: 0 0 20px rgba(20, 184, 166, 0.15);
 }
 
 body[data-theme="ember"] {
@@ -82,6 +93,7 @@ body[data-theme="ember"] {
   --panel-emphasis-border: rgba(249, 115, 22, 0.22);
   --knowledge-tint: rgba(251, 146, 60, 0.08);
   --knowledge-border: rgba(251, 146, 60, 0.24);
+  --accent-glow: 0 0 20px rgba(249, 115, 22, 0.15);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -92,6 +104,8 @@ body {
   color: var(--text-primary);
   overflow: hidden;
   height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .hidden { display: none !important; }
@@ -163,7 +177,11 @@ body {
 /* Sidebar */
 #sidebar {
   width: var(--sidebar-width); min-width: var(--sidebar-width);
-  background: var(--bg-secondary); border-right: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-right: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md);
   display: flex; flex-direction: column;
 }
 .sidebar-header {
@@ -183,6 +201,78 @@ body {
   border-radius: var(--radius-sm); color: var(--text-primary);
 }
 .sidebar-footer input:focus { outline: none; border-color: var(--accent); }
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-products-section {
+  border-bottom: 1px solid var(--glass-border);
+}
+.sidebar-workspaces-section {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-workspaces-section #workspace-list {
+  flex: 1;
+  overflow-y: auto;
+}
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-section-header h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+.sidebar-product-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background var(--transition-default);
+  font-size: 13px;
+}
+.sidebar-product-item:hover {
+  background: var(--bg-hover);
+}
+.sidebar-product-item.active {
+  background: var(--bg-active);
+  border-left: 3px solid var(--accent);
+}
+.sidebar-product-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sidebar-product-dot.in-progress { background: var(--accent); }
+.sidebar-product-dot.ready { background: var(--success); }
+.sidebar-product-dot.not-started { background: var(--text-muted); }
+.sidebar-product-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-product-stage {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
 
 /* Workspace Item */
 .ws-item {
@@ -700,6 +790,11 @@ body {
 .product-detail-panel {
   display: flex;
   flex-direction: column;
+  background: var(--glass-bg);
+  backdrop-filter: blur(calc(var(--glass-blur) / 2));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) / 2));
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
 
 .product-detail-scroll {
@@ -708,7 +803,7 @@ body {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .product-detail-scroll > * {
@@ -726,6 +821,11 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  transition: border-color var(--transition-default), box-shadow var(--transition-default);
+}
+.detail-panel:hover {
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-sm);
 }
 
 .executive-panel {
@@ -878,8 +978,12 @@ body {
 
 /* --- Copilot Hero Panel --- */
 .copilot-hero-panel {
-  border-color: var(--panel-emphasis-border);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), var(--accent-glow);
 }
 
 .copilot-hero-header {
@@ -887,6 +991,41 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.copilot-hero-stats {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+.copilot-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 8px;
+  gap: 2px;
+}
+.copilot-stat:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+.copilot-stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.copilot-stat-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.copilot-blocker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1027,6 +1166,10 @@ body {
   color: var(--text-secondary);
 }
 
+.copilot-primary-btn {
+  box-shadow: var(--accent-glow);
+  border-radius: var(--radius-sm);
+}
 .copilot-primary-btn.tone-danger { background: var(--danger); border-color: var(--danger); }
 .copilot-primary-btn.tone-warning { background: var(--warning); border-color: var(--warning); color: #000; }
 .copilot-primary-btn.tone-success { background: var(--success); border-color: var(--success); }
@@ -1524,6 +1667,11 @@ body {
   .products-overview-panel {
     min-height: 320px;
   }
+
+  .sidebar-products-section {
+    max-height: 120px;
+    overflow-y: auto;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1561,6 +1709,9 @@ body {
     min-width: 100%;
     max-height: 220px;
   }
+
+  .copilot-hero-stats { flex-wrap: wrap; }
+  .copilot-stat { flex: 1 1 45%; }
 }
 
 /* Signal Strength Badges */

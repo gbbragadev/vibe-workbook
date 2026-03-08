@@ -321,6 +321,34 @@
     });
   }
 
+  // ============ SIDEBAR PRODUCTS ============
+  App.renderSidebarProducts = function renderSidebarProducts() {
+    var container = document.getElementById('sidebar-product-list');
+    if (!container) return;
+    if (!state.products || !state.products.length) {
+      container.innerHTML = '<div style="padding:8px 14px;font-size:12px;color:var(--text-muted)">No products</div>';
+      return;
+    }
+    container.innerHTML = state.products.map(function(product) {
+      var isActive = product.product_id === state.activeProductId;
+      var productStatus = (product.pipeline || []).some(function(s) { return s.status === 'in-progress'; })
+        ? 'in-progress'
+        : ((product.pipeline || []).some(function(s) { return s.status === 'ready'; }) ? 'ready' : 'not-started');
+      var stageLabel = product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea';
+      return '<div class="sidebar-product-item' + (isActive ? ' active' : '') + '" data-product-id="' + product.product_id + '">' +
+        '<span class="sidebar-product-dot ' + productStatus + '"></span>' +
+        '<span class="sidebar-product-name">' + App.esc(product.name) + '</span>' +
+        '<span class="sidebar-product-stage">' + App.esc(stageLabel) + '</span>' +
+        '</div>';
+    }).join('');
+    container.querySelectorAll('.sidebar-product-item').forEach(function(el) {
+      el.addEventListener('click', function() {
+        App.setActiveProduct(el.dataset.productId);
+        App.switchView('products');
+      });
+    });
+  }
+
   // ============ VIEW SWITCHING ============
   App.switchView = function switchView(view) {
     state.activeView = view;
@@ -550,7 +578,7 @@
       const workspaceWarning = (product.workspace || {}).path_status && (product.workspace || {}).path_status !== 'valid'
         ? '<span class="chip warn">runtime workspace needs attention</span>'
         : '';
-      return '<article class="product-card ' + (product.product_id === activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +
+      return '<article class="product-card ' + (product.product_id === state.activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +
         '<div class="product-card-top"><div><div class="product-card-name">' + App.esc(product.name) + '</div>' +
         '<div class="chip-row" style="margin-top:6px"><span class="chip">' + App.esc(product.category) + '</span><span class="chip subtle">stage: ' + App.esc(stageLabel) + '</span>' + workspaceWarning + '</div></div>' +
         '<span class="status-pill ' + productStatus + '">' + App.stageStatusLabel(productStatus) + '</span></div>' +
@@ -581,6 +609,7 @@
     } catch (e) {
       detail.innerHTML = '<div class="empty-panel"><h3>Failed to load product</h3><p class="empty-subtext">' + App.esc(e.message) + '</p></div>';
     }
+    App.renderSidebarProducts();
   }
 
   App.buildReadinessPanel = function buildReadinessPanel(detail) {
@@ -1017,6 +1046,10 @@
     var narrative = App.buildCopilotNarrative(detail, stageId, pendingItems, primaryAction);
     var reason = App.buildCopilotReason(detail, stageId, pendingItems, primaryAction);
     var heroAction = App.resolveCopilotHeroAction(detail, stageId, pendingItems, statusMeta);
+    var artifactSummary = detail.artifact_summary || { present: 0, total: 0 };
+    var displayReadiness = App.deriveReadinessDisplay(detail.readiness || {});
+    var blockers = ((copilot.current_state || {}).blockers || []).slice(0, 3);
+    var stageLabel = detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea';
 
     var riskClass = riskMeta.level === 'success' ? 'tone-success' : (riskMeta.level === 'warning' || riskMeta.level === 'medium' ? 'tone-warning' : 'tone-danger');
 
@@ -1040,6 +1073,12 @@
         '<div class="copilot-hero-status"><h3>Project Copilot</h3><span class="chip ' + App.esc(statusMeta.className) + '">' + App.esc(statusMeta.label) + '</span></div>' +
         '<div class="copilot-hero-risk ' + App.esc(riskClass) + '"><span class="risk-label">' + App.esc(riskMeta.label) + '</span></div>' +
       '</div>' +
+      '<div class="copilot-hero-stats">' +
+        '<div class="copilot-stat"><span class="copilot-stat-label">Stage</span><span class="copilot-stat-value">' + App.esc(stageLabel) + '</span></div>' +
+        '<div class="copilot-stat"><span class="copilot-stat-label">Artifacts</span><span class="copilot-stat-value">' + App.esc(String(artifactSummary.present) + '/' + String(artifactSummary.total)) + '</span></div>' +
+        '<div class="copilot-stat"><span class="copilot-stat-label">Readiness</span><span class="copilot-stat-value">' + App.esc(displayReadiness.label || 'N/A') + '</span></div>' +
+        '<div class="copilot-stat"><span class="copilot-stat-label">Blockers</span><span class="copilot-stat-value">' + App.esc(String(blockers.length)) + '</span></div>' +
+      '</div>' +
       '<div class="copilot-hero-body">' +
         '<p class="copilot-narrative">' + App.esc(narrative) + '</p>' +
         '<p class="copilot-reason">' + App.esc(reason) + '</p>' +
@@ -1047,6 +1086,7 @@
         '<div class="copilot-hero-cta">' + heroAction.html + '<span class="artifact-row-meta">' + App.esc(heroAction.support || '') + '</span></div>' +
         (riskMeta.message ? '<div class="copilot-risk-message ' + App.esc(riskClass) + '"><span>' + App.esc(riskMeta.message) + '</span></div>' : '') +
       '</div>' +
+      (blockers.length ? '<div class="copilot-blocker-chips">' + blockers.map(function(b) { return '<span class="chip warn">' + App.esc(b.label) + '</span>'; }).join('') + '</div>' : '') +
       (pendingHtml ? '<div class="copilot-hero-pending"><div class="meta-item-label">Pendencias</div>' + pendingHtml + '</div>' : '') +
       (doneHtml ? '<div class="copilot-hero-done"><div class="meta-item-label">Concluido</div>' + doneHtml + '</div>' : '') +
       '</section>';
@@ -1193,12 +1233,11 @@
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
       '<button class="btn btn-sm" data-product-action="change-workspace">Change Runtime Workspace</button>' +
       '</div></div><div class="product-detail-scroll">' +
-      App.buildExecutiveSummaryPanel(detail, currentRun, latestHandoff) +
       App.buildCopilotPanel(detail) +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => App.buildArtifactRow(artifact)).join('') + '</div></div></section>' +
       App.buildReadinessPanel(detail) + '</div>' +
-      '<div class="detail-grid"><section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + App.esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + App.buildCurrentRunPanel(detail, currentRun) + '</div></section>' +
-      '<section class="detail-panel"><div class="panel-header"><h3>Next Actions</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + ((detail.next_actions || []).map(action => App.buildNextActionRow(action, detail)).join('') || '<p>No next actions available.</p>') + '</div></div></section></div>' +
+      '<div class="detail-grid">' + App.buildCollapsiblePanel('Current Run', App.esc(currentRun ? (currentRun.status || 'active') : 'no active run'), App.buildCurrentRunPanel(detail, currentRun), false) +
+      App.buildCollapsiblePanel('Next Actions', ((detail.next_actions || []).length) + ' suggested', '<div class="next-actions-list">' + ((detail.next_actions || []).map(function(action) { return App.buildNextActionRow(action, detail); }).join('') || '<p>No next actions available.</p>') + '</div>', false) + '</div>' +
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Pipeline', detail.pipeline.length + ' stages', pipelineBody, false) +
       '<section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta">collapsed by default</span></div><div class="panel-body"><div class="detail-grid"><div>' + App.buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + App.buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section></div>' +
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Knowledge Packs & Guidance', ((detail.knowledge_packs || []).length) + ' active', knowledgeBody, false) +
