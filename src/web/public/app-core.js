@@ -612,7 +612,7 @@
       '</div></section>';
   }
 
-  App.deriveReadinessDisplay = function App.deriveReadinessDisplay(readiness) {
+  App.deriveReadinessDisplay = function deriveReadinessDisplay(readiness) {
     var fallbackStatus = (readiness && readiness.status) || 'not-ready';
     var fallbackLabel = (readiness && readiness.label) || 'Not ready';
     var signals = Array.isArray(readiness && readiness.signals) ? readiness.signals : [];
@@ -725,6 +725,10 @@
     if (isFinite(confidence) && confidence >= 0.8) {
       level = 'success';
     } else if (isFinite(confidence) && confidence >= 0.6) {
+      level = 'warning';
+    }
+    var blockers = (pendingItems || []).filter(function(item) { return item.status === 'missing' || item.status === 'blocked'; });
+    if (blockers.length > 0 && level === 'success') {
       level = 'warning';
     }
     var label = level === 'success' ? 'Caminho seguro' : (level === 'warning' ? 'Atencao recomendada' : 'Risco elevado de retrabalho');
@@ -1002,65 +1006,50 @@
   App.buildCopilotPanel = function buildCopilotPanel(detail) {
     var copilot = detail.copilot;
     if (!copilot) return '';
-    var blockers = ((copilot.current_state || {}).blockers || []).slice(0, 3);
-    var createdAssets = (copilot.created_assets || []).slice(0, 6);
-    var candidates = (copilot.candidate_artifacts || []).slice(0, 6);
-    var decisions = (copilot.decision_log || []).slice(0, 6);
-    var recommendation = copilot.recommended_next_move || null;
+
+    var stageId = App.resolveAuthoritativeStageId(detail);
+    var pendingItems = App.buildCopilotPendingItems(detail, stageId);
+    var doneItems = App.buildCopilotDoneItems(detail);
     var primaryAction = App.resolvePrimaryProductAction(detail);
-    var delivery = copilot.delivery_readiness || { blocking_reasons: [] };
-    var state = copilot.current_state || {};
+    var statusMeta = App.resolveCopilotStatus(detail, pendingItems, primaryAction);
+    var riskMeta = App.resolveCopilotRiskMeta(detail, pendingItems);
+    var evidence = App.resolveExpectedEvidence(detail, stageId, pendingItems);
+    var narrative = App.buildCopilotNarrative(detail, stageId, pendingItems, primaryAction);
+    var reason = App.buildCopilotReason(detail, stageId, pendingItems, primaryAction);
+    var heroAction = App.resolveCopilotHeroAction(detail, stageId, pendingItems, statusMeta);
 
-    var blockersHtml = blockers.length
-      ? '<div class="chip-row" style="margin-top:10px">' + blockers.map(function(item) {
-          return '<span class="chip ' + (item.state === 'missing' || item.state === 'blocked' ? 'warn' : 'subtle') + '">' + App.esc(item.label) + '</span>';
+    var riskClass = riskMeta.level === 'success' ? 'tone-success' : (riskMeta.level === 'warning' || riskMeta.level === 'medium' ? 'tone-warning' : 'tone-danger');
+
+    var pendingHtml = pendingItems.length
+      ? '<div class="copilot-task-list">' + pendingItems.map(function(item) {
+          var statusIcon = item.status === 'missing' ? '<span class="copilot-icon missing">&#10007;</span>'
+            : item.status === 'blocked' ? '<span class="copilot-icon blocked">!</span>'
+            : '<span class="copilot-icon review">...</span>';
+          return '<div class="copilot-task-row"><div class="copilot-task-info">' + statusIcon + '<div><strong>' + App.esc(item.title) + '</strong><div class="artifact-row-meta">' + App.esc(item.detail || '') + '</div></div></div><div class="copilot-task-action">' + App.buildCopilotTaskAction(item) + '</div></div>';
         }).join('') + '</div>'
-      : '<div class="artifact-row-meta" style="margin-top:10px">No critical blockers surfaced by the copilot.</div>';
+      : '';
 
-    var createdHtml = createdAssets.length
-      ? '<div class="copilot-list">' + createdAssets.map(function(item) {
-          return '<div class="copilot-row"><div><strong>' + App.esc(item.label || item.relative_path || item.path) + '</strong><div class="artifact-row-meta mono" style="margin-top:6px">' + App.esc(item.relative_path || item.path || '') + '</div></div><div class="chip-row">' + App.buildCopilotStateChip(item.status) + (item.stage ? '<span class="chip subtle">' + App.esc(item.stage) + '</span>' : '') + '</div></div>';
+    var doneHtml = doneItems.length
+      ? '<div class="copilot-done-list">' + doneItems.map(function(item) {
+          return '<div class="copilot-done-row"><span class="copilot-icon done">&#10003;</span><div><span>' + App.esc(item.label) + '</span><span class="artifact-row-meta mono">' + App.esc(item.meta || '') + '</span></div></div>';
         }).join('') + '</div>'
-      : '<p class="empty-subtext">No concrete created assets registered yet.</p>';
+      : '';
 
-    var candidatesHtml = candidates.length
-      ? '<div class="copilot-list">' + candidates.map(function(item) {
-          var actionButtons = item.accepted === null
-            ? '<button class="btn btn-sm btn-primary" data-copilot-action="accept-candidate" data-candidate-id="' + App.esc(item.candidate_id) + '">Accept</button><button class="btn btn-sm" data-copilot-action="reject-candidate" data-candidate-id="' + App.esc(item.candidate_id) + '">Reject</button>'
-            : '<button class="btn btn-sm" data-copilot-action="review-candidate" data-candidate-id="' + App.esc(item.candidate_id) + '">Change</button>';
-          return '<div class="copilot-row"><div><strong>' + App.esc(item.kind_guess || item.relative_path) + '</strong><div class="artifact-row-meta mono" style="margin-top:6px">' + App.esc(item.relative_path || item.path || '') + '</div><div class="artifact-row-meta" style="margin-top:6px">' + App.esc(item.reason || '') + '</div></div><div class="copilot-row-actions"><div class="chip-row">' + App.buildCopilotStateChip(item.state) + (item.mapped_stage ? '<span class="chip subtle">' + App.esc(item.mapped_stage) + '</span>' : '') + '<span class="chip subtle">' + App.esc(App.formatConfidence(item.confidence)) + ' confidence</span></div><div class="chip-row" style="margin-top:8px">' + actionButtons + '</div></div></div>';
-        }).join('') + '</div>'
-      : '<p class="empty-subtext">No artifact candidates need review right now.</p>';
-
-    var decisionsHtml = decisions.length
-      ? '<div class="copilot-list">' + decisions.map(function(item) {
-          return '<div class="copilot-row"><div><strong>' + App.esc(item.title || 'Untitled decision') + '</strong><div class="artifact-row-meta" style="margin-top:6px">' + App.esc(item.note || 'No extra note recorded.') + '</div><div class="artifact-row-meta" style="margin-top:6px">' + App.esc(item.linked_stage || 'no linked stage') + (item.linked_artifacts && item.linked_artifacts.length ? ' | ' + App.esc(item.linked_artifacts.join(', ')) : '') + '</div></div><div class="copilot-row-actions"><div class="chip-row">' + App.buildCopilotStateChip(item.status) + '</div><div class="chip-row" style="margin-top:8px"><button class="btn btn-sm" data-copilot-action="' + (item.status === 'resolved' ? 'reopen-decision' : 'resolve-decision') + '" data-decision-id="' + App.esc(item.decision_id) + '">' + (item.status === 'resolved' ? 'Reopen' : 'Resolve') + '</button></div></div></div>';
-        }).join('') + '</div>'
-      : '<p class="empty-subtext">No decision memory recorded yet.</p>';
-
-    var recommendationHtml = recommendation
-      ? '<div class="summary-callout"><div class="product-row"><strong>' + App.esc(recommendation.action_type || 'next-move') + '</strong><span class="artifact-row-meta">' + App.esc(App.formatConfidence(recommendation.confidence)) + ' confidence</span></div><p style="margin-top:8px">' + App.esc(recommendation.reason || '') + '</p><div class="chip-row" style="margin-top:10px"><span class="chip subtle">' + App.esc(recommendation.execution_mode_hint || 'plan-mode') + '</span>' + (recommendation.stage_hint ? '<span class="chip subtle">' + App.esc(recommendation.stage_hint) + '</span>' : '') + (recommendation.skills_hint ? '<span class="chip subtle">' + App.esc(recommendation.skills_hint) + '</span>' : '') + '</div>' + (primaryAction ? '<div class="product-detail-actions" style="margin-top:12px">' + App.buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta', primaryAction.label) + '</div>' : '') + '</div>'
-      : '<p class="empty-subtext">No recommendation available yet.</p>';
-
-    var readinessHtml = '<div class="chip-row" style="margin-top:10px">' +
-      '<span class="chip ' + (delivery.ready_for_test ? 'ok' : 'warn') + '">test: ' + App.esc(delivery.ready_for_test ? 'ready' : 'not ready') + '</span>' +
-      '<span class="chip ' + (delivery.ready_for_test_deploy ? 'ok' : 'warn') + '">test deploy: ' + App.esc(delivery.ready_for_test_deploy ? 'ready' : 'not ready') + '</span>' +
-      '<span class="chip ' + (delivery.ready_for_production ? 'ok' : 'warn') + '">production: ' + App.esc(delivery.ready_for_production ? 'ready' : 'not ready') + '</span>' +
+    return '<section class="detail-panel copilot-hero-panel">' +
+      '<div class="copilot-hero-header">' +
+        '<div class="copilot-hero-status"><h3>Project Copilot</h3><span class="chip ' + App.esc(statusMeta.className) + '">' + App.esc(statusMeta.label) + '</span></div>' +
+        '<div class="copilot-hero-risk ' + App.esc(riskClass) + '"><span class="risk-label">' + App.esc(riskMeta.label) + '</span></div>' +
       '</div>' +
-      ((delivery.blocking_reasons || []).length ? '<div class="chip-row" style="margin-top:10px">' + delivery.blocking_reasons.slice(0, 3).map(function(item) {
-        return '<span class="chip warn">' + App.esc(item) + '</span>';
-      }).join('') + '</div>' : '');
-
-    return '<section class="detail-panel"><div class="panel-header"><h3>Project Copilot</h3><span class="artifact-row-meta">semantic project guidance</span></div><div class="panel-body">' +
-      '<div class="summary-callout"><strong>Project State</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + App.esc(copilot.summary || state.summary || 'No copilot summary available.') + '</p><div class="meta-list" style="margin-top:10px">' +
-      App.metaItem('Created Assets', String(state.created_assets_total || createdAssets.length || 0)) +
-      App.metaItem('Candidates', String(state.candidate_artifacts_total || candidates.length || 0)) +
-      App.metaItem('Open Decisions', String(state.open_decisions_total || 0)) +
-      '</div>' + blockersHtml + '</div>' +
-      '<div class="detail-grid"><section class="run-card"><div class="product-row"><span class="meta-item-label">Created / Candidate Artifacts</span><div class="chip-row"><button class="btn btn-sm" data-copilot-action="refresh">Refresh</button></div></div><div style="margin-top:10px">' + createdHtml + '</div><div style="margin-top:12px"><div class="meta-item-label">Artifact candidates</div>' + candidatesHtml + '</div></section>' +
-      '<section class="run-card"><div class="product-row"><span class="meta-item-label">Decisions & Open Issues</span><div class="chip-row"><button class="btn btn-sm btn-primary" data-copilot-action="add-decision">Add decision</button></div></div><div style="margin-top:10px">' + decisionsHtml + '</div></section></div>' +
-      '<div class="detail-grid" style="margin-top:12px"><section class="run-card"><span class="meta-item-label">Recommended Next Move</span><div style="margin-top:10px">' + recommendationHtml + '</div></section><section class="run-card"><span class="meta-item-label">Delivery Readiness</span><div style="margin-top:10px">' + readinessHtml + '</div></section></div>' +
-      '</div></section>';
+      '<div class="copilot-hero-body">' +
+        '<p class="copilot-narrative">' + App.esc(narrative) + '</p>' +
+        '<p class="copilot-reason">' + App.esc(reason) + '</p>' +
+        (evidence.path ? '<div class="copilot-evidence"><span class="meta-item-label">Evidencia esperada</span><span class="mono">' + App.esc(evidence.path) + '</span><span class="artifact-row-meta">' + App.esc(evidence.helper || '') + '</span></div>' : '') +
+        '<div class="copilot-hero-cta">' + heroAction.html + '<span class="artifact-row-meta">' + App.esc(heroAction.support || '') + '</span></div>' +
+        (riskMeta.message ? '<div class="copilot-risk-message ' + App.esc(riskClass) + '"><span>' + App.esc(riskMeta.message) + '</span></div>' : '') +
+      '</div>' +
+      (pendingHtml ? '<div class="copilot-hero-pending"><div class="meta-item-label">Pendencias</div>' + pendingHtml + '</div>' : '') +
+      (doneHtml ? '<div class="copilot-hero-done"><div class="meta-item-label">Concluido</div>' + doneHtml + '</div>' : '') +
+      '</section>';
   }
 
   App.resolvePrimaryProductAction = function resolvePrimaryProductAction(detail) {
