@@ -49,13 +49,21 @@
 
     <div id="main-layout">
       <aside id="sidebar">
-        <div class="sidebar-header">
-          <h2>Runtime Workspaces</h2>
-          <button class="btn btn-sm btn-primary" id="btn-new-workspace" title="New runtime workspace">+ Workspace</button>
+        <div class="sidebar-section sidebar-products-section">
+          <div class="sidebar-section-header">
+            <h3>Products</h3>
+          </div>
+          <div id="sidebar-product-list"></div>
         </div>
-        <div id="workspace-list"></div>
+        <div class="sidebar-section sidebar-workspaces-section">
+          <div class="sidebar-section-header">
+            <h3>Runtime Workspaces</h3>
+            <button class="btn btn-sm btn-primary" id="btn-new-workspace" title="New runtime workspace">+</button>
+          </div>
+          <div id="workspace-list"></div>
+        </div>
         <div class="sidebar-footer">
-          <input type="text" id="search-input" placeholder="Search sessions...">
+          <input type="text" id="search-input" placeholder="Search...">
         </div>
       </aside>
 
