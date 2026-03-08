@@ -51,6 +51,25 @@ class AgentAdapter {
   }
 
   /**
+   * Merge adapter-specific environment overrides with a base environment.
+   * Null/undefined values explicitly remove inherited variables.
+   * @param {Object} baseEnv
+   * @returns {Object}
+   */
+  buildSpawnEnv(baseEnv = process.env) {
+    const env = { ...(baseEnv || {}) };
+    const overrides = this.getEnv() || {};
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === null || value === undefined) {
+        delete env[key];
+      } else {
+        env[key] = value;
+      }
+    }
+    return env;
+  }
+
+  /**
    * Calculate cost data for this session
    * @returns {Promise<{tokens: Object, cost: Object, breakdown: Object}>}
    */
@@ -82,6 +101,47 @@ class AgentAdapter {
    */
   detectIdle(output) {
     return false;
+  }
+
+  /**
+   * Detect a launch/bootstrap failure from terminal output.
+   * @param {string} output
+   * @returns {string}
+   */
+  detectLaunchFailure(output) {
+    const text = String(output || '');
+    if (/CommandNotFoundException/i.test(text)) return 'Shell command failed before prompt injection.';
+    if (/is not recognized as (the )?name of a cmdlet/i.test(text)) return 'Shell could not launch the requested command.';
+    return '';
+  }
+
+  /**
+   * Milestone 3A — Return preferred launch strategy for this agent.
+   * Override in subclasses to set agent-specific defaults.
+   * @returns {'file-reference'|'ready-gated'|'stdin-full'}
+   */
+  getLaunchStrategy() {
+    return 'stdin-full';
+  }
+
+  /**
+   * Milestone 3A — Build a short bootstrap instruction that references an envelope file.
+   * Used by 'file-reference' and 'ready-gated' strategies.
+   * @param {string} envelopePath - Path to the envelope directory
+   * @returns {string}
+   */
+  buildBootstrapInstruction(envelopePath) {
+    return '';
+  }
+
+  /**
+   * Milestone 3A — Detect if the agent is ready to receive a bootstrap instruction.
+   * Alias for detectIdle by default; override for agent-specific signals.
+   * @param {string} output
+   * @returns {boolean}
+   */
+  detectReadyForBootstrap(output) {
+    return this.detectIdle(output);
   }
 }
 

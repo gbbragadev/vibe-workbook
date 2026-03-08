@@ -72,6 +72,23 @@ class CodexAdapter extends AgentAdapter {
     return /[>❯]\s*$/.test(last) || /What would you like/i.test(last);
   }
 
+  /** Milestone 3A — Codex uses file-reference for robust bootstrap */
+  getLaunchStrategy() {
+    return 'file-reference';
+  }
+
+  /**
+   * Milestone 3A — Short bootstrap instruction referencing the envelope brief.
+   * @param {string} envelopePath
+   * @returns {string}
+   */
+  buildBootstrapInstruction(envelopePath) {
+    const path = require('path');
+    const briefFile = envelopePath ? path.join(envelopePath, 'execution-brief.md') : '';
+    if (!briefFile) return '';
+    return `Please read the execution brief at: ${briefFile}\n\nProceed with the work described in that brief. When done, summarise what was produced and what the next step should be.`;
+  }
+
   async getCostData() {
     // Codex CLI doesn't write JSONL like Claude Code
     // Cost tracking for Codex relies on:

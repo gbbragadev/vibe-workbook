@@ -8,6 +8,7 @@ const { getStore } = require('../state/store');
 const { getProductService } = require('../core/product-service');
 
 const MAX_SCROLLBACK = 100 * 1024; // 100KB per session
+const MAX_OUTPUT_BUFFER = 12 * 1024;
 
 class PtySession {
   constructor(id, ptyProcess, agentType) {
@@ -57,6 +58,7 @@ class PtySession {
   _appendScrollback(data) {
     this.scrollback.push(data);
     this.scrollbackSize += data.length;
+    this._outputBuffer = (this._outputBuffer + data).slice(-MAX_OUTPUT_BUFFER);
     // Prune if too large
     while (this.scrollbackSize > MAX_SCROLLBACK && this.scrollback.length > 1) {
       const removed = this.scrollback.shift();
@@ -115,6 +117,10 @@ class PtySession {
       lastActive: this.lastActive
     };
   }
+
+  getRecentOutput() {
+    return this._outputBuffer;
+  }
 }
 
 class PtyManager {
@@ -156,13 +162,12 @@ class PtyManager {
     const command = adapter.buildCommand(opts);
     const shell = adapter.getShell();
     const shellArgs = adapter.getShellArgs(command);
-    const env = {
+    const env = adapter.buildSpawnEnv({
       ...process.env,
       TERM: process.env.TERM || 'xterm-256color',
       COLORTERM: process.env.COLORTERM || 'truecolor',
-      FORCE_COLOR: process.env.FORCE_COLOR || '1',
-      ...adapter.getEnv()
-    };
+      FORCE_COLOR: process.env.FORCE_COLOR || '1'
+    });
 
     const cols = opts.cols || 120;
     const rows = opts.rows || 30;
@@ -210,22 +215,89 @@ class PtyManager {
     store.addSessionLog(sessionId, `Launched ${session.agent}: ${command}`);
 
     if (session.promptSeed && session.promptSeedPending !== false && opts.injectPrompt !== false) {
-      const promptToSend = session.promptSeed.endsWith('\n') ? session.promptSeed : `${session.promptSeed}\r`;
-      setTimeout(() => {
-        try {
-          ptySession.write(promptToSend);
-          store.updateSession(sessionId, {
-            promptSeedPending: false,
-            promptSeedSentAt: Date.now()
-          });
-          store.addSessionLog(sessionId, 'Injected guided prompt seed');
-        } catch (e) {
-          store.addSessionLog(sessionId, `Prompt seed injection failed: ${e.message}`);
+      const launchStrategy = session.launchStrategy || adapter.getLaunchStrategy();
+      const envelopePath = session.executionEnvelopePath || '';
+
+      let promptToInject;
+      let strategyToUse;
+
+      if ((launchStrategy === 'file-reference' || launchStrategy === 'ready-gated') && envelopePath) {
+        // Use short envelope-reference bootstrap instruction
+        const bootstrapInstruction = adapter.buildBootstrapInstruction(envelopePath);
+        if (bootstrapInstruction) {
+          promptToInject = bootstrapInstruction.endsWith('\n') ? bootstrapInstruction : `${bootstrapInstruction}\r`;
+          strategyToUse = launchStrategy;
+        } else {
+          // Adapter returned empty instruction — fall back to full prompt
+          promptToInject = session.promptSeed.endsWith('\n') ? session.promptSeed : `${session.promptSeed}\r`;
+          strategyToUse = 'stdin-full';
         }
-      }, opts.promptDelayMs || 400);
+      } else {
+        // stdin-full (legacy) or no envelope
+        promptToInject = session.promptSeed.endsWith('\n') ? session.promptSeed : `${session.promptSeed}\r`;
+        strategyToUse = 'stdin-full';
+      }
+
+      this._schedulePromptInjection({
+        sessionId,
+        ptySession,
+        adapter,
+        store,
+        promptToSend: promptToInject,
+        strategy: strategyToUse,
+        promptDelayMs: opts.promptDelayMs || 400
+      });
     }
 
     return ptySession;
+  }
+
+  _schedulePromptInjection({ sessionId, ptySession, adapter, store, promptToSend, strategy = 'stdin-full', promptDelayMs = 400, attempts = 0 }) {
+    setTimeout(() => {
+      try {
+        if (!ptySession.alive) return;
+
+        const recentOutput = ptySession.getRecentOutput();
+        const launchFailure = adapter.detectLaunchFailure(recentOutput);
+        if (launchFailure) {
+          store.updateSession(sessionId, { promptSeedPending: false });
+          store.addSessionLog(sessionId, `Skipped guided prompt injection: ${launchFailure}`);
+          return;
+        }
+
+        // For file-reference: we wait for the adapter to be ready, same as ready-gated,
+        // but max retries are higher since the context is on disk and won't be lost.
+        const maxAttempts = strategy === 'file-reference' ? 40 : 20;
+        const readyForInput = adapter.detectReadyForBootstrap(recentOutput);
+
+        if (!readyForInput && attempts < maxAttempts) {
+          this._schedulePromptInjection({
+            sessionId,
+            ptySession,
+            adapter,
+            store,
+            promptToSend,
+            strategy,
+            promptDelayMs,
+            attempts: attempts + 1
+          });
+          return;
+        }
+
+        ptySession.write(promptToSend);
+        store.updateSession(sessionId, {
+          promptSeedPending: false,
+          promptSeedSentAt: Date.now(),
+          bootstrapStrategy: strategy
+        });
+        const strategyNote = strategy !== 'stdin-full' ? ` [strategy: ${strategy}]` : '';
+        store.addSessionLog(sessionId, attempts > 0
+          ? `Injected guided prompt seed after agent became ready${strategyNote}`
+          : `Injected guided prompt seed${strategyNote}`);
+      } catch (e) {
+        store.addSessionLog(sessionId, `Prompt seed injection failed: ${e.message}`);
+      }
+    }, promptDelayMs);
   }
 
   /**

@@ -862,11 +862,12 @@
     const defaultSessionId = primarySession ? (primarySession.id || '') : '';
     const currentKnowledge = linkedRun ? resolveRunKnowledge(linkedRun, detail) : null;
     const suggestedOutputs = pickCarryForwardOutputs(linkedRun);
-    const evidenceCount = (linkedRun && Array.isArray(linkedRun.produced_outputs)) ? linkedRun.produced_outputs.filter(function(item) { var cat = item.category || ''; return cat === 'evidence'; }).length : 0;
+    const existingArtifacts = (detail.artifacts || []).filter(function(item) { return item && item.exists; });
+    const evidenceCount = ((linkedRun && Array.isArray(linkedRun.produced_outputs)) ? linkedRun.produced_outputs.filter(function(item) { var cat = item.category || ''; return cat === 'evidence'; }).length : 0) + existingArtifacts.length;
     const lowEvidenceHtml = evidenceCount === 0 ? '<div class="low-evidence-warning">No concrete evidence outputs (artifacts, handoffs) will be registered in this handoff. Consider producing artifacts before completing this stage.</div>' : '';
     const selectedOutputRefs = suggestedOutputs.map(item => item.output_id || item.ref_id).filter(Boolean);
     const outputChecks = buildOutputChecklist(linkedRun ? (linkedRun.produced_outputs || []) : [], 'handoff-output', selectedOutputRefs, 'data-handoff-output-ref');
-    const artifactChecks = buildOutputChecklist((detail.artifacts || []).filter(item => item.exists).map(item => ({
+    const artifactChecks = buildOutputChecklist(existingArtifacts.map(item => ({
       output_id: item.id,
       type: 'artifact',
       ref_id: item.id,
@@ -874,6 +875,18 @@
     })), 'handoff-artifact', [], 'data-handoff-artifact-ref');
     const expectedSnapshot = buildOutputReferenceChips(linkedRun ? (linkedRun.expected_outputs || []) : [], 'No expected outputs declared for this run.');
     const summaryDraft = buildCompletionDraft(detail, linkedRun, fromStage, nextStage, primarySession);
+
+    // Milestone 3A: transition gate status callout
+    var gateStatus3A = detail.transition_gate_status || 'no-contract';
+    var evRpt3A = detail.evidence_report;
+    var gateHtml3A = '';
+    if (gateStatus3A === 'blocked' && evRpt3A && evRpt3A.stage_in_scope) {
+      var missingList3A = (evRpt3A.missing_required || []).map(function(a) { return '<span class="chip warn">' + esc(a) + '</span>'; }).join('');
+      gateHtml3A = '<div class="gate-warning-callout"><strong>&#9940; Execution gate: blocked</strong><p>Required artifacts not yet verified on disk:</p><div class="chip-row" style="margin-top:8px">' + (missingList3A || '<span class="chip warn">unknown</span>') + '</div><p style="margin-top:8px;font-size:12px;color:var(--text-muted)">You can still complete this stage, but the gate will be recorded as blocked.</p></div>';
+    } else if (gateStatus3A === 'passing') {
+      gateHtml3A = '<div class="gate-passing-callout"><strong>&#10003; Execution gate: passing</strong></div>';
+    }
+
     const runContext = linkedRun
       ? '<section class="dialog-section"><div class="dialog-section-title">Execution Context</div><div class="dialog-knowledge-block"><div class="meta-list">' +
         metaItem('Stage', fromStage) +
@@ -884,7 +897,7 @@
         (currentKnowledge ? '<div style="margin-top:10px">' + buildKnowledgeDriverInline(currentKnowledge) + '</div>' : '') +
         '</div></section>'
       : '<section class="dialog-section"><div class="dialog-section-title">Execution Context</div><div class="dialog-knowledge-block"><div class="artifact-row-meta">No active run is linked to this stage right now. This completion will still be saved manually.</div></div></section>';
-    showDialog('Complete Stage', runContext + lowEvidenceHtml +
+    showDialog('Complete Stage', runContext + lowEvidenceHtml + gateHtml3A +
       '<section class="dialog-section"><div class="dialog-section-title">Suggested Handoff</div>' +
       '<label>From Stage</label><input type="text" value="' + esc(fromStage) + '" disabled>' +
       '<label>To Stage</label><select id="dlg-handoff-to">' + STAGE_ORDER.filter(stage => stage !== 'idea').map(stage => '<option value="' + stage + '"' + (stage === nextStage ? ' selected' : '') + '>' + esc(stage) + '</option>').join('') + '</select>' +
@@ -1704,13 +1717,33 @@
 
     term.open(container);
     if (fitAddon) setTimeout(function() { fitAddon.fit(); }, 100);
+    setTimeout(function() { term.focus(); }, 0);
 
     const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = wsProto + '//' + location.host + '/ws/terminal?token=' + token + '&sessionId=' + sessionId + '&cols=' + term.cols + '&rows=' + term.rows;
     const ws = new WebSocket(wsUrl);
+    const sendInput = function(data) {
+      if (ws.readyState === WebSocket.OPEN && data) ws.send(data);
+    };
+    const focusTerminal = function() {
+      try { term.focus(); } catch (e) { /* ignore */ }
+    };
+    const pasteFromClipboardEvent = function(e) {
+      var text = e && e.clipboardData ? e.clipboardData.getData('text') : '';
+      if (!text) return;
+      e.preventDefault();
+      sendInput(text);
+      focusTerminal();
+    };
+    const onContainerClick = function() { focusTerminal(); };
+    const onContainerPaste = function(e) { pasteFromClipboardEvent(e); };
+
+    container.addEventListener('click', onContainerClick);
+    container.addEventListener('paste', onContainerPaste);
 
     ws.onopen = function() {
       term.write('\r\n\x1b[90m[Connected to ' + sessionId + ']\x1b[0m\r\n');
+      focusTerminal();
     };
 
     ws.onmessage = function(e) {
@@ -1728,8 +1761,27 @@
     ws.onclose = function() { term.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n'); };
 
     term.onData(function(data) {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+      sendInput(data);
     });
+
+    if (typeof term.attachCustomKeyEventHandler === 'function') {
+      term.attachCustomKeyEventHandler(function(ev) {
+        var isPasteShortcut = (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && String(ev.key || '').toLowerCase() === 'v';
+        if (!isPasteShortcut) return true;
+        if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+          navigator.clipboard.readText().then(function(text) {
+            if (text) sendInput(text);
+            focusTerminal();
+          }).catch(function() {
+            focusTerminal();
+          });
+        } else {
+          focusTerminal();
+        }
+        ev.preventDefault();
+        return false;
+      });
+    }
 
     term.onResize(function(size) {
       if (ws.readyState === WebSocket.OPEN) {
@@ -1737,7 +1789,16 @@
       }
     });
 
-    terminalPanes.push({ sessionId: sessionId, term: term, ws: ws, fitAddon: fitAddon });
+    terminalPanes.push({
+      sessionId: sessionId,
+      term: term,
+      ws: ws,
+      fitAddon: fitAddon,
+      cleanup: function() {
+        container.removeEventListener('click', onContainerClick);
+        container.removeEventListener('paste', onContainerPaste);
+      }
+    });
 
     window.addEventListener('resize', function() {
       if (fitAddon) setTimeout(function() { fitAddon.fit(); }, 50);
@@ -1756,6 +1817,7 @@
     if (!sessionId) return;
     terminalPanes = terminalPanes.filter(function(pane) {
       if (pane.sessionId !== sessionId) return true;
+      try { if (pane.cleanup) pane.cleanup(); } catch (e) { /* ignore */ }
       try { pane.ws.close(); } catch (e) { /* ignore */ }
       try { pane.term.dispose(); } catch (e) { /* ignore */ }
       return false;

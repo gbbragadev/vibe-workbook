@@ -276,6 +276,37 @@ function createServer() {
     res.status(201).json(handoff);
   });
 
+  // --- Milestone 3A: Evidence & Envelope Routes ---
+
+  app.post('/api/products/:id/runs/:runId/evidence', (req, res) => {
+    try {
+      const product = productService.getProductById(req.params.id);
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      const run = productService.runCoordinatorService.getRunById(req.params.runId);
+      if (!run) return res.status(404).json({ error: 'Run not found' });
+      const orchestrator = require('../core/execution-orchestrator-service').getExecutionOrchestratorService();
+      const report = orchestrator.verifyEvidence(run, product, run.execution_envelope_path || '');
+      res.json(report);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/products/:id/runs/:runId/envelope', (req, res) => {
+    try {
+      const product = productService.getProductById(req.params.id);
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      const run = productService.runCoordinatorService.getRunById(req.params.runId);
+      if (!run) return res.status(404).json({ error: 'Run not found' });
+      const orchestrator = require('../core/execution-orchestrator-service').getExecutionOrchestratorService();
+      const envelope = orchestrator.loadEnvelope(run.execution_envelope_path || '');
+      if (!envelope) return res.status(404).json({ error: 'Envelope not found for this run' });
+      res.json({ envelope, envelope_path: run.execution_envelope_path || '' });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // --- Workspace Routes ---
 
   app.get('/api/workspaces', (req, res) => {

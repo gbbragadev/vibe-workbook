@@ -146,6 +146,42 @@ test('product service builds detail with pipeline, artifacts and sessions', () =
   assert.ok(Array.isArray(detail.next_actions));
 });
 
+test('product service recognizes discovery briefs as the brief artifact', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'zapcam');
+  fs.mkdirSync(path.join(repoDir, 'docs', 'discovery'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'docs', 'discovery', '2026-03-07-zapcam-discovery-brief.md'), '# discovery brief');
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'zapcam',
+        name: 'Zapcam',
+        slug: 'zapcam',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'Product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-zap', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, { registryFile });
+  const detail = service.getProductDetail('zapcam', [{ id: 'ws-zap', name: 'Zapcam Workspace' }], []);
+
+  const briefArtifact = detail.artifacts.find((artifact) => artifact.id === 'brief');
+  assert.ok(briefArtifact);
+  assert.equal(briefArtifact.exists, true);
+  assert.match(briefArtifact.path, /docs[\\/]+discovery$/);
+});
+
 test('product service enriches next actions with knowledge preset metadata when pack is active', () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
