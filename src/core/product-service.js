@@ -887,13 +887,13 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
 
   const signals = [];
   const implStrength = stageSignalStrength('implementation');
-  signals.push({ id: 'implementation-done', label: 'Implementation stage completed', strength: implStrength, met: implStrength !== 'none' && implStrength !== 'weak', required: true });
+  signals.push({ id: 'implementation-done', label: 'Implementation stage completed', strength: implStrength, met: implStrength !== 'none', required: true });
 
   const testStrategySignal = artifactSignal('test-strategy');
   signals.push({ id: 'test-strategy-exists', label: 'Test strategy artifact exists', strength: testStrategySignal.strength, met: testStrategySignal.met && testStrategySignal.strength !== 'weak', required: true });
 
   const testStrength = stageSignalStrength('test');
-  signals.push({ id: 'test-stage-done', label: 'Test stage completed', strength: testStrength, met: testStrength !== 'none' && testStrength !== 'weak', required: true });
+  signals.push({ id: 'test-stage-done', label: 'Test stage completed', strength: testStrength, met: testStrength !== 'none', required: true });
 
   const releasePlanSignal = artifactSignal('release-plan');
   signals.push({ id: 'release-plan-exists', label: 'Release plan artifact exists', strength: releasePlanSignal.strength, met: releasePlanSignal.met && releasePlanSignal.strength !== 'weak', required: true });
@@ -903,13 +903,11 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
 
   const requiredSignals = signals.filter(s => s.required);
   const requiredMet = requiredSignals.filter(s => s.met).length;
-  const hasWeakRequired = requiredSignals.some(s => s.met && s.strength === 'weak');
-
   let status, label;
-  if (requiredMet >= 5 && !hasWeakRequired) {
+  if (requiredMet >= 5) {
     status = 'ready-for-release-candidate';
     label = 'Ready for release candidate';
-  } else if (requiredMet >= 3 || hasWeakRequired) {
+  } else if (requiredMet >= 3) {
     status = 'needs-evidence';
     label = 'Needs more evidence';
   } else {
