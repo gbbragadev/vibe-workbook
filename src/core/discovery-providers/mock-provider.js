@@ -10,11 +10,12 @@ class MockDiscoveryProvider extends BaseDiscoveryProvider {
   async discover(query) {
     const q = (query || '').toLowerCase();
     if (!q) return FIXTURES;
-    return FIXTURES.filter(f =>
-      f.title.toLowerCase().includes(q) ||
-      f.text.toLowerCase().includes(q) ||
-      f.extractedUseCase.toLowerCase().includes(q)
-    );
+    // Also match word stems (e.g. 'automation' matches 'automate')
+    const stem = q.replace(/(tion|ing|ed|s|er|ly)$/i, '');
+    return FIXTURES.filter(f => {
+      const haystack = (f.title + ' ' + f.text + ' ' + f.extractedUseCase).toLowerCase();
+      return haystack.includes(q) || (stem.length >= 4 && haystack.includes(stem));
+    });
   }
 
   normalizeSignal(raw) {
