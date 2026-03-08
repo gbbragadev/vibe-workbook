@@ -584,7 +584,9 @@
       ? '<div class="chip-row" style="margin-top:10px">' + readiness.gaps.map(function(g) { return '<span class="chip ' + (g.severity === 'required' ? 'warn' : 'subtle') + '">' + esc(g.label) + '</span>'; }).join('') + '</div>'
       : '';
     var keyArtifactsHtml = (releasePacket.key_artifacts || []).map(function(a) {
-      return '<span class="artifact-chip ' + (a.exists ? 'exists' : 'missing') + '">' + esc(a.label) + ': ' + (a.exists ? 'present' : 'missing') + '</span>';
+      var contentState = a.content_status || (a.exists ? 'valid' : 'missing');
+      var label = contentState === 'skeletal' ? 'skeletal' : (a.exists ? 'present' : 'missing');
+      return '<span class="artifact-chip ' + esc(contentState === 'valid' ? 'exists' : contentState) + '">' + esc(a.label) + ': ' + label + '</span>';
     }).join('');
     return '<section class="detail-panel"><div class="panel-header"><h3>Release Readiness</h3><span class="status-pill ' + esc(statusClass) + '">' + esc(readiness.label) + '</span></div><div class="panel-body">' +
       '<div class="summary-callout ' + statusClass + '"><strong>' + esc(readiness.label) + '</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + esc(readiness.summary || '') + '</p></div>' +
@@ -815,7 +817,7 @@
       '</div></div><div class="product-detail-scroll">' +
       buildExecutiveSummaryPanel(detail, currentRun, latestHandoff) +
       buildCopilotPanel(detail) +
-      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => '<div class="artifact-row"><div class="product-row"><h4>' + esc(artifact.label) + '</h4><span class="artifact-chip ' + (artifact.exists ? 'exists' : 'missing') + '">' + (artifact.exists ? 'present' : 'missing') + '</span></div><div class="artifact-row-meta mono" style="margin-top:8px">' + esc(artifact.path || 'No path configured') + '</div></div>').join('') + '</div></div></section>' +
+      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => buildArtifactRow(artifact)).join('') + '</div></div></section>' +
       buildReadinessPanel(detail) + '</div>' +
       '<div class="detail-grid"><section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + buildCurrentRunPanel(detail, currentRun) + '</div></section>' +
       '<section class="detail-panel"><div class="panel-header"><h3>Next Actions</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + ((detail.next_actions || []).map(action => buildNextActionRow(action, detail)).join('') || '<p>No next actions available.</p>') + '</div></div></section></div>' +
@@ -1949,7 +1951,27 @@
   function stageStatusLabel(status) {
     if (status === 'in-progress') return 'in progress';
     if (status === 'not-started') return 'not started';
+    if (status === 'ready-for-handoff') return 'ready for handoff';
+    if (status === 'ready') return 'ready to start';
     return status || 'unknown';
+  }
+
+  function artifactContentLabel(artifact) {
+    var state = (artifact && artifact.content_status) || ((artifact && artifact.exists) ? 'valid' : 'missing');
+    if (state === 'skeletal') return 'empty/skeletal';
+    if (state === 'valid') return 'present';
+    return 'missing';
+  }
+
+  function buildArtifactRow(artifact) {
+    var contentState = (artifact && artifact.content_status) || ((artifact && artifact.exists) ? 'valid' : 'missing');
+    var subtleMeta = '';
+    if (contentState === 'skeletal') {
+      subtleMeta = '<div class="artifact-row-meta" style="margin-top:6px">Exists on disk but still looks empty or skeletal.</div>';
+    } else if (artifact && artifact.exists && artifact.sizeBytes) {
+      subtleMeta = '<div class="artifact-row-meta" style="margin-top:6px">Size: ' + esc(String(artifact.sizeBytes)) + ' bytes</div>';
+    }
+    return '<div class="artifact-row"><div class="product-row"><h4>' + esc(artifact.label) + '</h4><div class="chip-row"><span class="artifact-chip ' + esc(contentState === 'valid' ? 'exists' : contentState) + '">' + esc(artifactContentLabel(artifact)) + '</span>' + (contentState === 'skeletal' ? '<span class="chip subtle">needs content</span>' : '') + '</div></div><div class="artifact-row-meta mono" style="margin-top:8px">' + esc(artifact.path || 'No path configured') + '</div>' + subtleMeta + '</div>';
   }
 
   function formatDateTime(ts) {

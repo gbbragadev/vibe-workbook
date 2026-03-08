@@ -120,6 +120,164 @@ function directoryHasEntries(dirPath) {
   }
 }
 
+const TEXT_ARTIFACT_EXTENSIONS = new Set([
+  '.md', '.markdown', '.txt', '.json', '.yml', '.yaml',
+  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
+  '.html', '.css'
+]);
+const SKELETAL_FILE_SIZE_BYTES = 48;
+const MIN_TEXTUAL_CONTENT_CHARS = 24;
+const MAX_PREVIOUS_HANDOFF_FILES = 3;
+const MAX_PREVIOUS_HANDOFF_CHARS = 2200;
+
+function safeStat(targetPath) {
+  try {
+    return fs.statSync(targetPath);
+  } catch {
+    return null;
+  }
+}
+
+function isTextualArtifactPath(targetPath) {
+  return TEXT_ARTIFACT_EXTENSIONS.has(path.extname(String(targetPath || '')).toLowerCase());
+}
+
+function normalizeTextualContent(value) {
+  return String(value || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[`#>*_[\]\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function classifyArtifactContent(targetPath, exists) {
+  if (!exists || !targetPath) {
+    return {
+      kind: 'missing',
+      sizeBytes: 0,
+      content_status: 'missing',
+      content_hint: 'missing'
+    };
+  }
+
+  const stat = safeStat(targetPath);
+  if (!stat) {
+    return {
+      kind: 'unknown',
+      sizeBytes: 0,
+      content_status: 'missing',
+      content_hint: 'missing'
+    };
+  }
+
+  if (stat.isDirectory()) {
+    const entries = directoryHasEntries(targetPath) ? fs.readdirSync(targetPath).length : 0;
+    return {
+      kind: 'directory',
+      sizeBytes: stat.size || 0,
+      entryCount: entries,
+      content_status: entries > 0 ? 'valid' : 'skeletal',
+      content_hint: entries > 0 ? 'directory-with-entries' : 'empty-directory'
+    };
+  }
+
+  const sizeBytes = stat.size || 0;
+  if (sizeBytes === 0) {
+    return {
+      kind: 'file',
+      sizeBytes,
+      content_status: 'skeletal',
+      content_hint: 'empty-file'
+    };
+  }
+
+  if (!isTextualArtifactPath(targetPath)) {
+    return {
+      kind: 'file',
+      sizeBytes,
+      content_status: sizeBytes > SKELETAL_FILE_SIZE_BYTES ? 'valid' : 'skeletal',
+      content_hint: sizeBytes > SKELETAL_FILE_SIZE_BYTES ? 'binary-present' : 'tiny-file'
+    };
+  }
+
+  try {
+    const raw = fs.readFileSync(targetPath, 'utf8');
+    const normalized = normalizeTextualContent(raw);
+    if (!normalized || normalized.length < MIN_TEXTUAL_CONTENT_CHARS || sizeBytes <= SKELETAL_FILE_SIZE_BYTES) {
+      return {
+        kind: 'file',
+        sizeBytes,
+        content_status: 'skeletal',
+        content_hint: normalized ? 'minimal-text' : 'empty-text'
+      };
+    }
+  } catch {
+    return {
+      kind: 'file',
+      sizeBytes,
+      content_status: sizeBytes > SKELETAL_FILE_SIZE_BYTES ? 'valid' : 'skeletal',
+      content_hint: 'unreadable-text'
+    };
+  }
+
+  return {
+    kind: 'file',
+    sizeBytes,
+    content_status: 'valid',
+    content_hint: 'minimally-filled'
+  };
+}
+
+function resolveArtifactPathFromRef(repoPath, refValue) {
+  const value = String(refValue || '').trim();
+  if (!repoPath || !value) return null;
+
+  const artifactMatch = value.match(/^artifact:(.+)$/i);
+  const artifactId = artifactMatch ? artifactMatch[1] : value;
+  const artifactDef = ARTIFACT_DEFS.find((item) => item.id === artifactId);
+  if (artifactDef) {
+    const resolved = resolveArtifact({ repo: { local_path: repoPath } }, artifactDef);
+    return resolved.exists ? resolved.path : null;
+  }
+
+  const absoluteCandidate = path.isAbsolute(value) ? value : path.join(repoPath, value);
+  return fileExists(absoluteCandidate) ? absoluteCandidate : null;
+}
+
+function readPreviousHandoffArtifacts(repoPath, previousHandoff, options = {}) {
+  if (!repoPath || !previousHandoff || !Array.isArray(previousHandoff.output_refs)) return [];
+  const maxFiles = options.maxFiles || MAX_PREVIOUS_HANDOFF_FILES;
+  const maxCharsPerFile = options.maxCharsPerFile || MAX_PREVIOUS_HANDOFF_CHARS;
+  const sections = [];
+  const seenPaths = new Set();
+
+  for (const ref of previousHandoff.output_refs) {
+    if (sections.length >= maxFiles) break;
+    const resolvedPath = resolveArtifactPathFromRef(repoPath, ref);
+    if (!resolvedPath || seenPaths.has(resolvedPath)) continue;
+    if (!isTextualArtifactPath(resolvedPath)) continue;
+    seenPaths.add(resolvedPath);
+
+    try {
+      const raw = fs.readFileSync(resolvedPath, 'utf8').trim();
+      if (!raw) continue;
+      const truncated = raw.length > maxCharsPerFile
+        ? `${raw.slice(0, maxCharsPerFile)}\n\n[truncated at ${maxCharsPerFile} chars]`
+        : raw;
+      sections.push({
+        ref,
+        path: resolvedPath,
+        truncated: raw.length > maxCharsPerFile,
+        content: truncated
+      });
+    } catch {
+      continue;
+    }
+  }
+
+  return sections;
+}
+
 function resolveArtifact(product, artifact) {
   const repoPath = product?.repo?.local_path || '';
   if (!repoPath) {
@@ -130,7 +288,11 @@ function resolveArtifact(product, artifact) {
       exists: false,
       optional: artifact.optional,
       source: 'repo',
-      reason: 'missing-repo-path'
+      reason: 'missing-repo-path',
+      kind: 'missing',
+      sizeBytes: 0,
+      content_status: 'missing',
+      content_hint: 'missing'
     };
   }
 
@@ -149,6 +311,8 @@ function resolveArtifact(product, artifact) {
     }
   }
 
+  const contentMeta = classifyArtifactContent(matchedPath, exists);
+
   return {
     id: artifact.id,
     label: artifact.label,
@@ -156,7 +320,12 @@ function resolveArtifact(product, artifact) {
     exists,
     optional: artifact.optional,
     source: 'repo',
-    updatedAt: exists ? safeMtime(matchedPath) : null
+    updatedAt: exists ? safeMtime(matchedPath) : null,
+    kind: contentMeta.kind,
+    sizeBytes: contentMeta.sizeBytes,
+    entryCount: contentMeta.entryCount || 0,
+    content_status: contentMeta.content_status,
+    content_hint: contentMeta.content_hint
   };
 }
 
@@ -218,13 +387,15 @@ function getArtifactMap(artifacts) {
 }
 
 function getLastMeaningfulStep(pipeline) {
-  const ranked = pipeline.filter((step) => step.status === 'done' || step.status === 'in-progress');
+  const ranked = pipeline.filter((step) => ['done', 'in-progress', 'ready-for-handoff'].includes(step.status));
   return ranked[ranked.length - 1] || null;
 }
 
 function deriveCurrentStageId(pipeline, fallbackStageId = 'idea') {
   const inProgress = pipeline.find((step) => step.status === 'in-progress');
   if (inProgress) return inProgress.stage_id;
+  const readyForHandoff = pipeline.find((step) => step.status === 'ready-for-handoff');
+  if (readyForHandoff) return readyForHandoff.stage_id;
   const ready = pipeline.find((step) => step.status === 'ready');
   if (ready) return ready.stage_id;
   return fallbackStageId || 'idea';
@@ -429,17 +600,15 @@ function derivePipeline(product, artifacts, relatedSessions, handoffs, runs) {
       || (completedRun?.latest_completion || completedRun?.latest_handoff || null)
       || null;
     const artifactsComplete = stage.requiredArtifacts.every((artifactId) => artifactMap[artifactId] && artifactMap[artifactId].exists);
+    const hasFormalCompletion = !!latestOutgoingHandoff;
+    const isReadyForHandoff = !hasFormalCompletion && (
+      stage.requiredArtifacts.length
+        ? artifactsComplete
+        : !!completedRun
+    );
     const previousStagesDone = STAGE_PRESETS.slice(0, index).every((previousStage) => {
-      const previousArtifactComplete = previousStage.requiredArtifacts.every((artifactId) => artifactMap[artifactId] && artifactMap[artifactId].exists);
       if (previousStage.id === 'idea') return !!(product.summary || product.name);
-      if (previousStage.id === 'implementation') {
-        return relatedSessions.some((session) => session.stageId === 'implementation') ||
-          handoffs.some((handoff) => handoff.from_stage === 'implementation') ||
-          (runs || []).some((run) => run.stage_id === 'implementation' && ['active', 'in-progress', 'completed'].includes(run.status));
-      }
-      return previousArtifactComplete ||
-        handoffs.some((handoff) => handoff.from_stage === previousStage.id) ||
-        (runs || []).some((run) => run.stage_id === previousStage.id && ['active', 'in-progress', 'completed'].includes(run.status));
+      return handoffs.some((handoff) => handoff.from_stage === previousStage.id);
     });
 
     let status = 'not-started';
@@ -449,17 +618,14 @@ function derivePipeline(product, artifacts, relatedSessions, handoffs, runs) {
       status = 'blocked';
     } else if (activeRun) {
       status = 'in-progress';
-    } else if (latestOutgoingHandoff || completedRun) {
+    } else if (hasFormalCompletion) {
       status = 'done';
     } else if (activeSession) {
       status = 'in-progress';
-    } else if (artifactsComplete) {
-      status = 'done';
+    } else if (isReadyForHandoff) {
+      status = 'ready-for-handoff';
     } else if (stage.id === 'implementation') {
-      const anyImplementation = relatedSessions.some((session) => session.stageId === 'implementation') ||
-        handoffs.some((handoff) => handoff.from_stage === 'implementation') ||
-        (runs || []).some((run) => run.stage_id === 'implementation' && ['active', 'in-progress', 'completed'].includes(run.status));
-      status = anyImplementation ? 'done' : (previousStagesDone ? 'ready' : 'not-started');
+      status = previousStagesDone ? 'ready' : 'not-started';
     } else if (previousStagesDone) {
       status = 'ready';
     }
@@ -480,7 +646,9 @@ function derivePipeline(product, artifacts, relatedSessions, handoffs, runs) {
       latest_handoff: relevantHandoff,
       latest_completion: latestCompletion,
       latest_incoming_handoff: latestIncomingHandoff,
-      artifacts_complete: artifactsComplete
+      artifacts_complete: artifactsComplete,
+      ready_for_handoff: isReadyForHandoff,
+      completion_mode: hasFormalCompletion ? 'formal-handoff' : (isReadyForHandoff ? 'artifacts-ready' : 'pending')
     };
   });
 }
@@ -706,21 +874,32 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
     return 'weak';
   }
 
+  function artifactSignal(artifactId) {
+    const artifact = artifactMap[artifactId];
+    if (!artifact || !artifact.exists) {
+      return { met: false, strength: 'none' };
+    }
+    if (!artifact.content_status || artifact.content_status === 'valid') {
+      return { met: true, strength: 'strong' };
+    }
+    return { met: false, strength: 'weak' };
+  }
+
   const signals = [];
   const implStrength = stageSignalStrength('implementation');
-  signals.push({ id: 'implementation-done', label: 'Implementation stage completed', strength: implStrength, met: implStrength !== 'none', required: true });
+  signals.push({ id: 'implementation-done', label: 'Implementation stage completed', strength: implStrength, met: implStrength !== 'none' && implStrength !== 'weak', required: true });
 
-  const testStrategyExists = !!(artifactMap['test-strategy'] && artifactMap['test-strategy'].exists);
-  signals.push({ id: 'test-strategy-exists', label: 'Test strategy artifact exists', strength: testStrategyExists ? 'strong' : 'none', met: testStrategyExists, required: true });
+  const testStrategySignal = artifactSignal('test-strategy');
+  signals.push({ id: 'test-strategy-exists', label: 'Test strategy artifact exists', strength: testStrategySignal.strength, met: testStrategySignal.met && testStrategySignal.strength !== 'weak', required: true });
 
   const testStrength = stageSignalStrength('test');
-  signals.push({ id: 'test-stage-done', label: 'Test stage completed', strength: testStrength, met: testStrength !== 'none', required: true });
+  signals.push({ id: 'test-stage-done', label: 'Test stage completed', strength: testStrength, met: testStrength !== 'none' && testStrength !== 'weak', required: true });
 
-  const releasePlanExists = !!(artifactMap['release-plan'] && artifactMap['release-plan'].exists);
-  signals.push({ id: 'release-plan-exists', label: 'Release plan artifact exists', strength: releasePlanExists ? 'strong' : 'none', met: releasePlanExists, required: true });
+  const releasePlanSignal = artifactSignal('release-plan');
+  signals.push({ id: 'release-plan-exists', label: 'Release plan artifact exists', strength: releasePlanSignal.strength, met: releasePlanSignal.met && releasePlanSignal.strength !== 'weak', required: true });
 
-  const runbookExists = !!(artifactMap['runbook'] && artifactMap['runbook'].exists);
-  signals.push({ id: 'runbook-exists', label: 'Runbook artifact exists', strength: runbookExists ? 'strong' : 'none', met: runbookExists, required: true });
+  const runbookSignal = artifactSignal('runbook');
+  signals.push({ id: 'runbook-exists', label: 'Runbook artifact exists', strength: runbookSignal.strength, met: runbookSignal.met && runbookSignal.strength !== 'weak', required: true });
 
   const requiredSignals = signals.filter(s => s.required);
   const requiredMet = requiredSignals.filter(s => s.met).length;
@@ -836,6 +1015,8 @@ function buildGuidedPrompt(product, stage, run, expectedOutputs = [], previousHa
     preset_label: run.preset_label || run.preset_id
   } : null);
 
+  const previousArtifactSections = readPreviousHandoffArtifacts(product?.repo?.local_path || '', previousHandoff);
+
   return [
     `Product: ${product.name}`,
     product.summary ? `Summary: ${product.summary}` : '',
@@ -848,6 +1029,13 @@ function buildGuidedPrompt(product, stage, run, expectedOutputs = [], previousHa
     previousHandoff ? `Previous handoff from: ${previousHandoff.from_stage || 'unknown'} -> ${previousHandoff.to_stage || stage.stage_id}` : '',
     previousHandoff ? `Handoff summary: ${previousHandoff.summary || ''}` : '',
     previousHandoff && Array.isArray(previousHandoff.output_refs) && previousHandoff.output_refs.length ? `Referenced outputs: ${previousHandoff.output_refs.join(', ')}` : '',
+    previousArtifactSections.length ? '' : '',
+    ...previousArtifactSections.flatMap((section, index) => ([
+      `Previous artifact ${index + 1}: ${section.ref}`,
+      `Path: ${section.path}`,
+      section.content,
+      ''
+    ])),
     outputLabels.length ? `Expected outputs: ${outputLabels.join(', ')}` : '',
     '',
     'Work inside the current repository/runtime workspace context.',
