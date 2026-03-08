@@ -63,7 +63,34 @@ class GeminiAdapter extends AgentAdapter {
 
   detectIdle(output) {
     const last = output.slice(-500);
-    return /[>❯$]\s*$/.test(last);
+    // Gemini CLI ready indicators: prompt symbols, waiting for input messages
+    return /[>❯$]\s*$/.test(last) ||
+      /gemini[>:]\s*$/i.test(last) ||
+      /\(type.*to quit\)/i.test(last) ||
+      /You can now start/i.test(last);
+  }
+
+  /** Milestone 3A — Gemini uses file-reference to avoid stdin timing dependency */
+  getLaunchStrategy() {
+    return 'file-reference';
+  }
+
+  /**
+   * Milestone 3A — Return a short bootstrap instruction pointing to the brief file.
+   * Gemini CLI supports reading files via its standard chat interface.
+   * @param {string} envelopePath
+   * @returns {string}
+   */
+  buildBootstrapInstruction(envelopePath) {
+    const path = require('path');
+    const briefFile = envelopePath ? path.join(envelopePath, 'execution-brief.md') : '';
+    if (!briefFile) return '';
+    return `Please read the execution brief at: ${briefFile}\n\nProceed with the work described in that brief. When done, summarise what was produced and what the next step should be.`;
+  }
+
+  /** Milestone 3A — Same as detectIdle for Gemini */
+  detectReadyForBootstrap(output) {
+    return this.detectIdle(output);
   }
 
   async getCostData() {

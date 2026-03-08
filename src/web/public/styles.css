@@ -1234,3 +1234,35 @@ body {
   font-size: 14px;
   font-weight: 700;
 }
+
+/* Milestone 3A — Transition Gate */
+.gate-warning-callout {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--danger-tint);
+  font-size: 13px;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.gate-warning-callout strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.gate-warning-callout p {
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+}
+
+.gate-passing-callout {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--success) 35%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--success-tint);
+  font-size: 13px;
+  color: var(--success);
+}

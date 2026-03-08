@@ -33,11 +33,20 @@ class ClaudeAdapter extends AgentAdapter {
     }
     if (opts.verbose) parts.push('--verbose');
     if (opts.continue) parts.push('--continue');
-    return parts.join(' ');
+    const claudeCommand = parts.join(' ');
+
+    if (process.platform === 'win32') {
+      return `$env:CLAUDECODE=$null; Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; ${claudeCommand}`;
+    }
+
+    return `unset CLAUDECODE; ${claudeCommand}`;
   }
 
   getEnv() {
-    return { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+    return {
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      CLAUDECODE: null
+    };
   }
 
   detectActivity(output) {
@@ -53,6 +62,33 @@ class ClaudeAdapter extends AgentAdapter {
   detectIdle(output) {
     const last = output.slice(-500);
     return /[❯$>]\s*$/.test(last) || /^Human:/m.test(last);
+  }
+
+  detectLaunchFailure(output) {
+    const baseFailure = super.detectLaunchFailure(output);
+    if (baseFailure) return baseFailure;
+    if (/cannot be launched inside another claude code session/i.test(output || '')) {
+      return 'Claude Code detected a nested session. CLAUDECODE is now unset for spawned Claude sessions.';
+    }
+    return '';
+  }
+
+  /** Milestone 3A — Claude uses ready-gated: retry until idle prompt detected */
+  getLaunchStrategy() {
+    return 'ready-gated';
+  }
+
+  /**
+   * Milestone 3A — Short bootstrap instruction referencing the envelope brief.
+   * Claude receives a concise pointer instead of a full prompt.
+   * @param {string} envelopePath
+   * @returns {string}
+   */
+  buildBootstrapInstruction(envelopePath) {
+    const path = require('path');
+    const briefFile = envelopePath ? path.join(envelopePath, 'execution-brief.md') : '';
+    if (!briefFile) return '';
+    return `Context for this run is in: ${briefFile}\n\nPlease read it and proceed.`;
   }
 
   async getCostData() {

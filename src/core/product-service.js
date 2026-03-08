@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { getKnowledgePackService } = require('./knowledge-pack-service');
 const { getRunCoordinatorService, buildExpectedOutputs, classifyOutputCategory } = require('./run-coordinator-service');
+const { getExecutionOrchestratorService } = require('./execution-orchestrator-service');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const REGISTRY_FILE = path.join(ROOT_DIR, 'products', 'registry', 'products.json');
@@ -77,7 +78,7 @@ const STAGE_PRESETS = [
 
 const ARTIFACT_DEFS = [
   { id: 'manifest', label: 'Product Manifest', relativePath: '.platform/product.json', optional: false },
-  { id: 'brief', label: 'Brief', relativePath: 'docs/brief.md', optional: false },
+  { id: 'brief', label: 'Brief', relativePath: 'docs/brief.md', optional: false, alternates: ['docs/discovery'] },
   { id: 'spec', label: 'Spec', relativePath: 'docs/spec.md', optional: false },
   { id: 'architecture', label: 'Architecture', relativePath: 'ARCHITECTURE.md', optional: false, alternates: ['ADR'] },
   { id: 'runbook', label: 'Runbook', relativePath: 'docs/runbook.md', optional: false },
@@ -861,6 +862,7 @@ class ProductService {
     this.handoffsFile = opts.handoffsFile || HANDOFFS_FILE;
     this.knowledgePackService = opts.knowledgePackService || getKnowledgePackService();
     this.runCoordinatorService = opts.runCoordinatorService || getRunCoordinatorService();
+    this.orchestratorService = opts.orchestratorService || getExecutionOrchestratorService();
   }
 
   getRegistry() {
@@ -1133,6 +1135,20 @@ class ProductService {
     const operateLite = deriveOperateLite(artifacts, pipeline, readiness, handoffs);
     const nextActions = deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, knowledge.stage_recommendations || [], readiness);
 
+    // Milestone 3A: Derive transition gate and evidence report for current run
+    let transitionGateStatus = 'no-contract';
+    let evidenceReport = null;
+    if (currentRun) {
+      transitionGateStatus = this.orchestratorService.getTransitionGateStatus(
+        currentRun,
+        product,
+        currentRun.execution_envelope_path || ''
+      );
+      evidenceReport = this.orchestratorService.loadEvidenceReport(
+        currentRun.execution_envelope_path || ''
+      );
+    }
+
     return {
       product_id: product.product_id,
       name: product.name,
@@ -1172,7 +1188,10 @@ class ProductService {
       operate_lite: operateLite,
       next_actions: nextActions,
       related_sessions: relatedSessions.slice(0, 5),
-      pipeline
+      pipeline,
+      // Milestone 3A
+      transition_gate_status: transitionGateStatus,
+      evidence_report: evidenceReport
     };
   }
 
@@ -1283,6 +1302,27 @@ class ProductService {
     });
     const promptSeed = buildGuidedPrompt(product, stageForRun, run, run.expected_outputs || [], latestIncomingHandoff);
 
+    // Milestone 3A: Generate execution envelope and determine launch strategy
+    const envelopeResult = this.orchestratorService.generateEnvelope(run, product, stageForRun, {
+      previousHandoff: latestIncomingHandoff || null
+    });
+    const launchStrategyResult = this.orchestratorService.getLaunchStrategy(agent, envelopeResult.envelopePath || '');
+
+    // Persist envelope path and contract into the run record
+    if (envelopeResult.envelopePath) {
+      const contract = this.orchestratorService.getContractForStage(stage.id);
+      const outputContract = this.orchestratorService.getOutputContractForStage(stage.id);
+      const runsData = this.runCoordinatorService.getStore();
+      const runRecord = runsData.runs.find(r => r.run_id === run.run_id);
+      if (runRecord) {
+        runRecord.execution_envelope_path = envelopeResult.envelopePath;
+        runRecord.execution_contract = contract || null;
+        runRecord.output_contract = outputContract || null;
+        runRecord.launch_strategy = launchStrategyResult.strategy;
+        writeJsonAtomic(this.runCoordinatorService.runsFile, runsData);
+      }
+    }
+
     const session = store.createSession({
       name: sessionName,
       workspaceId,
@@ -1296,6 +1336,9 @@ class ProductService {
       stageId,
       role,
       promptSeed,
+      // Milestone 3A: launch strategy and envelope path for PtyManager
+      launchStrategy: launchStrategyResult.strategy,
+      executionEnvelopePath: envelopeResult.envelopePath || '',
       knowledgePackId: selectedPreset?.knowledge_pack_id || '',
       knowledgePackName: selectedPreset?.knowledge_pack_name || '',
       presetType: selectedPreset?.preset_type || '',
@@ -1304,7 +1347,7 @@ class ProductService {
     });
     this.runCoordinatorService.attachSession(run.run_id, session);
 
-    return { session, stage: stageForRun, product, run, previous_handoff: latestIncomingHandoff || null };
+    return { session, stage: stageForRun, product, run, previous_handoff: latestIncomingHandoff || null, execution_envelope: envelopeResult.envelopePath ? envelopeResult : null };
   }
 
   executeNextAction(productId, actionId, payload, store, workspaces, sessions) {
