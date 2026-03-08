@@ -840,6 +840,10 @@ body {
   gap: 16px;
 }
 
+.product-detail-scroll > * {
+  flex-shrink: 0;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1030,6 +1034,153 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+}
+
+.copilot-hero {
+  border-color: var(--panel-emphasis-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.copilot-hero .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.copilot-hero-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.copilot-hero-summary {
+  margin-top: 12px;
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  max-width: 72ch;
+}
+
+.copilot-hero-cta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: start;
+}
+
+.copilot-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.copilot-callout {
+  margin-top: 0;
+}
+
+.copilot-task-list {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+}
+
+.copilot-secondary-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.copilot-inline-section {
+  margin-top: 0;
+}
+
+.copilot-inline-section > summary {
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+}
+
+.copilot-task-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.copilot-task-row:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.copilot-task-copy {
+  flex: 1;
+}
+
+.copilot-task-copy strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.copilot-task-actions {
+  flex-shrink: 0;
+}
+
+.copilot-risk-pill.copilot-risk-success {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+  background: var(--success-tint);
+}
+
+.copilot-risk-pill.copilot-risk-warning {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  background: var(--warning-tint);
+}
+
+.copilot-risk-pill.copilot-risk-danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  background: var(--danger-tint);
+}
+
+.copilot-cta-btn {
+  min-width: 280px;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 14px 18px;
+  min-height: 52px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.copilot-cta-success {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.copilot-cta-success:hover {
+  background: color-mix(in srgb, var(--success) 82%, white);
+}
+
+.copilot-cta-warning {
+  background: var(--warning);
+  border-color: var(--warning);
+  color: #111827;
+}
+
+.copilot-cta-warning:hover {
+  background: color-mix(in srgb, var(--warning) 82%, white);
+}
+
+.copilot-cta-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.copilot-cta-danger:hover {
+  background: color-mix(in srgb, var(--danger) 82%, white);
 }
 
 .pipeline-list,
@@ -1469,7 +1620,9 @@ body {
   .knowledge-pack-meta,
   .run-body-grid,
   .executive-grid,
-  .dialog-inline-summary {
+  .dialog-inline-summary,
+  .copilot-hero-top,
+  .copilot-hero-grid {
     grid-template-columns: 1fr;
   }
 

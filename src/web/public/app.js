@@ -662,9 +662,10 @@
     }
   }
 
-  function buildReadinessPanel(detail) {
+  function buildReadinessPanel(detail, options) {
     var readiness = detail.readiness;
     if (!readiness) return '';
+    var embedded = options && options.embedded;
     var releasePacket = detail.release_packet || {};
     var statusClass = readiness.status === 'ready-for-release-candidate' ? 'readiness-ready' : readiness.status === 'needs-evidence' ? 'readiness-needs-evidence' : 'readiness-not-ready';
     var signalsHtml = (readiness.signals || []).map(function(s) {
@@ -681,13 +682,17 @@
       var label = contentState === 'skeletal' ? 'skeletal' : (a.exists ? 'present' : 'missing');
       return '<span class="artifact-chip ' + esc(contentState === 'valid' ? 'exists' : contentState) + '">' + esc(a.label) + ': ' + label + '</span>';
     }).join('');
-    return '<section class="detail-panel"><div class="panel-header"><h3>Release Readiness</h3><span class="status-pill ' + esc(statusClass) + '">' + esc(readiness.label) + '</span></div><div class="panel-body">' +
+    var bodyHtml = '<div class="panel-body">' +
       '<div class="summary-callout ' + statusClass + '"><strong>' + esc(readiness.label) + '</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + esc(readiness.summary || '') + '</p></div>' +
       '<div class="readiness-signals">' + signalsHtml + '</div>' +
       gapsHtml +
       (keyArtifactsHtml ? '<div style="margin-top:12px"><span class="meta-item-label">Key Artifacts</span><div class="chip-row" style="margin-top:6px">' + keyArtifactsHtml + '</div></div>' : '') +
       (releasePacket.next_release_step ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Release Step</span><p style="margin-top:6px;font-size:13px">' + esc(releasePacket.next_release_step) + '</p></div>' : '') +
-      '</div></section>';
+      '</div>';
+    if (embedded) {
+      return '<details class="inline-details copilot-inline-section"><summary>Release Readiness</summary><div class="inline-details-body">' + bodyHtml + '</div></details>';
+    }
+    return '<section class="detail-panel"><div class="panel-header"><h3>Release Readiness</h3><span class="status-pill ' + esc(statusClass) + '">' + esc(readiness.label) + '</span></div>' + bodyHtml + '</section>';
   }
 
   function formatConfidence(value) {
@@ -704,67 +709,526 @@
     return '<span class="chip ' + chipClass + '">' + esc(normalized || 'unknown') + '</span>';
   }
 
-  function buildCopilotPanel(detail) {
-    var copilot = detail.copilot;
-    if (!copilot) return '';
-    var blockers = ((copilot.current_state || {}).blockers || []).slice(0, 3);
-    var createdAssets = (copilot.created_assets || []).slice(0, 6);
-    var candidates = (copilot.candidate_artifacts || []).slice(0, 6);
-    var decisions = (copilot.decision_log || []).slice(0, 6);
+  function normalizeCopilotTone(level) {
+    var normalized = String(level || '').toLowerCase();
+    if (normalized === 'low') return 'success';
+    if (normalized === 'medium') return 'warning';
+    return 'danger';
+  }
+
+  function copilotExpectedPathForArtifact(artifactId) {
+    if (artifactId === 'brief') return 'docs/brief.md';
+    if (artifactId === 'spec') return 'docs/spec.md';
+    if (artifactId === 'architecture') return 'ARCHITECTURE.md';
+    if (artifactId === 'test-strategy') return 'docs/test-strategy.md';
+    if (artifactId === 'runbook') return 'docs/runbook.md';
+    if (artifactId === 'release-plan') return 'docs/release-plan.md';
+    return '';
+  }
+
+  function hasArtifactEvidence(detail, artifactId) {
+    return (detail.artifacts || []).some(function(artifact) {
+      return artifact && artifact.id === artifactId && artifact.exists;
+    });
+  }
+
+  function resolveCopilotAgentHint(stageId, recommendation) {
+    if (recommendation && recommendation.agent_hint) return recommendation.agent_hint;
+    if (stageId === 'idea' || stageId === 'brief') return 'Gemini';
+    if (stageId === 'spec' || stageId === 'architecture' || stageId === 'test' || stageId === 'release') return 'Claude';
+    if (stageId === 'implementation') return 'Codex';
+    return '';
+  }
+
+  function resolveCopilotStageLabel(stageId) {
+    if (stageId === 'idea') return 'Idea';
+    if (stageId === 'brief') return 'Briefing';
+    if (stageId === 'spec') return 'Specification';
+    if (stageId === 'architecture') return 'Architecture';
+    if (stageId === 'implementation') return 'Implementation';
+    if (stageId === 'test') return 'Testing';
+    if (stageId === 'release') return 'Release';
+    if (stageId === 'done') return 'Done';
+    return stageId || 'Idea';
+  }
+
+  function resolveCopilotFallbackBlockers(detail, copilot, stageId) {
+    var blockers = [];
+    var candidates = ((copilot || {}).candidate_artifacts || []).filter(function(item) {
+      return item && item.accepted === null && item.counts_as_artifact;
+    });
+    var decisions = ((copilot || {}).decision_log || []).filter(function(item) {
+      return item && item.status === 'open';
+    });
+
+    if (candidates.length) {
+      blockers.push({
+        kind: 'candidate-review',
+        action_type: 'review-candidate',
+        action_label: 'Revisar',
+        candidate_id: candidates[0].candidate_id || '',
+        expected_path: candidates[0].relative_path || ''
+      });
+    }
+    if (decisions.length) {
+      blockers.push({
+        kind: 'open-decision',
+        action_type: 'resolve-decision',
+        action_label: 'Resolver',
+        decision_id: decisions[0].decision_id || ''
+      });
+    }
+
+    if (stageId === 'idea' || stageId === 'brief') {
+      if (!hasArtifactEvidence(detail, 'brief')) {
+        blockers.push({
+          kind: 'missing-artifact',
+          artifact_id: 'brief',
+          action_type: 'continue-stage',
+          action_label: 'Iniciar Briefing',
+          expected_path: copilotExpectedPathForArtifact('brief')
+        });
+      }
+    }
+    if (stageId === 'spec') {
+      if (hasArtifactEvidence(detail, 'spec') && !hasArtifactEvidence(detail, 'architecture')) {
+        blockers.push({
+          kind: 'missing-artifact',
+          artifact_id: 'architecture',
+          action_type: 'continue-stage',
+          action_label: 'Iniciar Architecture',
+          expected_path: copilotExpectedPathForArtifact('architecture')
+        });
+      } else if (!hasArtifactEvidence(detail, 'spec')) {
+        blockers.push({
+          kind: 'missing-artifact',
+          artifact_id: 'spec',
+          action_type: 'continue-stage',
+          action_label: 'Criar spec',
+          expected_path: copilotExpectedPathForArtifact('spec')
+        });
+      }
+    }
+    if (stageId === 'architecture' && !hasArtifactEvidence(detail, 'architecture')) {
+      blockers.push({
+        kind: 'missing-artifact',
+        artifact_id: 'architecture',
+        action_type: 'continue-stage',
+        action_label: 'Iniciar Architecture',
+        expected_path: copilotExpectedPathForArtifact('architecture')
+      });
+    }
+    if (stageId === 'test' && !hasArtifactEvidence(detail, 'test-strategy')) {
+      blockers.push({
+        kind: 'missing-artifact',
+        artifact_id: 'test-strategy',
+        action_type: 'continue-stage',
+        action_label: 'Criar test strategy',
+        expected_path: copilotExpectedPathForArtifact('test-strategy')
+      });
+    }
+    if (stageId === 'release') {
+      if (!hasArtifactEvidence(detail, 'runbook')) {
+        blockers.push({
+          kind: 'missing-artifact',
+          artifact_id: 'runbook',
+          action_type: 'continue-stage',
+          action_label: 'Criar runbook',
+          expected_path: copilotExpectedPathForArtifact('runbook')
+        });
+      } else if (!hasArtifactEvidence(detail, 'release-plan')) {
+        blockers.push({
+          kind: 'missing-artifact',
+          artifact_id: 'release-plan',
+          action_type: 'continue-stage',
+          action_label: 'Criar release plan',
+          expected_path: copilotExpectedPathForArtifact('release-plan')
+        });
+      }
+    }
+
+    if (!blockers.length) {
+      var topBlockers = resolveTopBlockers(detail, 1);
+      if (topBlockers.length) {
+        blockers.push({
+          kind: 'readiness-gap',
+          label: topBlockers[0],
+          action_type: 'refresh',
+          action_label: 'Atualizar',
+          expected_path: ''
+        });
+      }
+    }
+
+    return blockers.slice(0, 3);
+  }
+
+  function resolveCopilotRiskInfo(detail, recommendation, blockers) {
+    if (recommendation && recommendation.risk_label) {
+      var recTone = normalizeCopilotTone(recommendation.risk_level || 'high');
+      var recLabel = recommendation.risk_label;
+      if ((blockers || []).length > 0 && recTone === 'success') {
+        recTone = 'warning';
+        recLabel = 'Atenção recomendada';
+      }
+      return {
+        level: recommendation.risk_level || 'high',
+        tone: recTone,
+        label: recLabel
+      };
+    }
+    if ((blockers || []).some(function(item) { return item && item.kind === 'missing-artifact'; })) {
+      return { level: 'high', tone: 'danger', label: 'Risco elevado de retrabalho' };
+    }
+    var readiness = detail.readiness || {};
+    if (readiness.status === 'ready-for-release-candidate') {
+      if ((blockers || []).length > 0) {
+        return { level: 'medium', tone: 'warning', label: 'Atenção recomendada' };
+      }
+      return { level: 'low', tone: 'success', label: 'Caminho seguro' };
+    }
+    if (readiness.status === 'needs-evidence') {
+      return { level: 'medium', tone: 'warning', label: 'Atenção recomendada' };
+    }
+    return { level: 'high', tone: 'danger', label: 'Risco elevado de retrabalho' };
+  }
+
+  function resolveCopilotExpectedEvidence(detail, recommendation, blockers, stageId) {
+    var blockerPath = blockers[0] && blockers[0].expected_path;
+    if (blockerPath) return blockerPath;
+    if (stageId === 'spec') return copilotExpectedPathForArtifact('spec');
+    if (stageId === 'architecture') return copilotExpectedPathForArtifact('architecture');
+    if (stageId === 'test') return copilotExpectedPathForArtifact('test-strategy');
+    if (stageId === 'release') return copilotExpectedPathForArtifact('runbook');
+    if (stageId === 'brief' || stageId === 'idea') return copilotExpectedPathForArtifact('brief');
+    if (recommendation && recommendation.expected_evidence) return recommendation.expected_evidence;
+    return 'Confirme a evidencia governada esperada para a etapa atual.';
+  }
+
+  function resolveCopilotPrimaryAction(detail, primaryAction, stageId, blockers) {
+    if (primaryAction) return primaryAction;
+    if (stageId === 'done') {
+      if ((detail.workspace || {}).runtime_workspace_id) {
+        return {
+          type: 'open-workspace',
+          label: 'Abrir runtime workspace',
+          description: 'Abra o workspace para revisar a entrega atual.'
+        };
+      }
+      return null;
+    }
+    var blocker = (blockers || [])[0] || null;
+    var blockerStageId = blocker && blocker.artifact_id === 'architecture'
+      ? 'architecture'
+      : blocker && blocker.artifact_id === 'test-strategy'
+        ? 'test'
+        : blocker && (blocker.artifact_id === 'runbook' || blocker.artifact_id === 'release-plan')
+          ? 'release'
+          : blocker && blocker.artifact_id === 'brief'
+            ? 'brief'
+            : blocker && blocker.artifact_id === 'spec'
+              ? 'spec'
+              : '';
+    return {
+      type: 'start-stage',
+      label: 'Continuar etapa',
+      description: 'Continue o fluxo guiado do produto.',
+      stageId: blockerStageId || (stageId === 'idea' ? 'brief' : (stageId || 'brief'))
+    };
+  }
+
+  function resolveCopilotPrimaryLabel(action, stageId, agentHint) {
+    if (!action) return '';
+    if (action.type === 'open-workspace') return 'Abrir runtime workspace';
+    if (action.type === 'open-session') return 'Abrir sessao ativa';
+    if (action.type === 'complete-stage') {
+      return 'Concluir ' + resolveCopilotStageLabel(action.stageId || stageId) + (agentHint ? ' (' + agentHint + ')' : '');
+    }
+    var actionStageId = action.stageId || stageId || 'brief';
+    var verb = action.type === 'start-stage'
+      ? (actionStageId === 'brief' ? 'Iniciar' : 'Continuar')
+      : 'Continuar';
+    return verb + ' ' + resolveCopilotStageLabel(actionStageId) + (agentHint ? ' (' + agentHint + ')' : '');
+  }
+
+  function resolveCopilotViewModel(detail) {
+    var copilot = detail.copilot || {};
     var recommendation = copilot.recommended_next_move || null;
     var primaryAction = resolvePrimaryProductAction(detail);
-    var delivery = copilot.delivery_readiness || { blocking_reasons: [] };
-    var state = copilot.current_state || {};
+    var stageId = (recommendation && recommendation.stage_hint)
+      || detail.current_stage_id
+      || detail.computed_stage_signal
+      || detail.declared_stage
+      || (primaryAction && primaryAction.stageId)
+      || 'idea';
+    var blockers = ((((copilot || {}).current_state || {}).blockers) || []).slice(0, 3);
+    if (!blockers.length) blockers = resolveCopilotFallbackBlockers(detail, copilot, stageId);
+    var riskInfo = resolveCopilotRiskInfo(detail, recommendation, blockers);
+    var agentHint = resolveCopilotAgentHint(stageId, recommendation);
+    var action = resolveCopilotPrimaryAction(detail, primaryAction, stageId, blockers);
+    return {
+      copilot: copilot,
+      recommendation: recommendation,
+      stageId: stageId,
+      stageLabel: (((copilot || {}).current_state || {}).current_stage_label) || (recommendation && recommendation.current_stage_label) || resolveCopilotStageLabel(stageId),
+      blockers: blockers,
+      candidates: ((copilot || {}).candidate_artifacts || []).slice(0, 6),
+      decisions: ((copilot || {}).decision_log || []).slice(0, 6),
+      state: (copilot || {}).current_state || {},
+      riskInfo: riskInfo,
+      agentHint: agentHint,
+      action: action,
+      primaryLabel: resolveCopilotPrimaryLabel(action, stageId, agentHint),
+      summary: buildCopilotPrimaryMessage(detail, recommendation, blockers, stageId),
+      reason: humanizeCopilotReason(recommendation && (recommendation.why_this_matters || recommendation.reason), recommendation),
+      expectedEvidence: resolveCopilotExpectedEvidence(detail, recommendation, blockers, stageId)
+    };
+  }
 
-    var blockersHtml = blockers.length
-      ? '<div class="chip-row" style="margin-top:10px">' + blockers.map(function(item) {
-          return '<span class="chip ' + (item.state === 'missing' || item.state === 'blocked' ? 'warn' : 'subtle') + '">' + esc(item.label) + '</span>';
-        }).join('') + '</div>'
-      : '<div class="artifact-row-meta" style="margin-top:10px">No critical blockers surfaced by the copilot.</div>';
+  function humanizeCopilotReason(reason, recommendation) {
+    var stageId = (recommendation && recommendation.stage_hint) || '';
+    var raw = String(reason || '').trim();
+    if (!raw) {
+      return 'O Copilot está analisando o projeto. Continue trabalhando na etapa atual.';
+    }
+    if (raw.indexOf('There are plausible artifact candidates') !== -1) {
+      return 'Validar os artefatos candidatos evita trabalho duplicado e libera a próxima fase com contexto confiável.';
+    }
+    if (raw.indexOf('Open project decisions') !== -1) {
+      return 'Sem fechar as decisões abertas, a implementação tende a seguir com ambiguidades e retrabalho.';
+    }
+    if (raw.indexOf('The current stage is already in progress') !== -1) {
+      return 'A etapa atual já está em andamento e precisa consolidar evidência antes do próximo passo.';
+    }
+    if (raw.indexOf('The next governed action is ready to execute') !== -1) {
+      return 'A base atual já permite seguir para a próxima etapa do fluxo oficial.';
+    }
+    if (raw.indexOf('The product looks testable') !== -1) {
+      return 'Antes do deploy de teste, a operação ainda precisa de evidência mais forte.';
+    }
+    if (raw.indexOf('Heuristics say the product is close to production review') !== -1) {
+      return 'Vale fazer a revisão final antes de tratar a entrega como pronta.';
+    }
+    if (raw.indexOf('The platform still lacks enough semantic evidence') !== -1) {
+      if (stageId === 'idea' || stageId === 'brief') return 'Ainda falta definição do produto. O briefing precisa ser consolidado antes de avançar.';
+      if (stageId === 'spec' || stageId === 'architecture') return 'Ainda falta evidência estrutural para seguir com segurança.';
+      return 'Ainda faltam evidências importantes para orientar o próximo passo com segurança.';
+    }
+    return 'Esta ação reduz ambiguidade e mantém a etapa atual alinhada com o fluxo oficial.';
+  }
 
-    var createdHtml = createdAssets.length
-      ? '<div class="copilot-list">' + createdAssets.map(function(item) {
-          return '<div class="copilot-row"><div><strong>' + esc(item.label || item.relative_path || item.path) + '</strong><div class="artifact-row-meta mono" style="margin-top:6px">' + esc(item.relative_path || item.path || '') + '</div></div><div class="chip-row">' + buildCopilotStateChip(item.status) + (item.stage ? '<span class="chip subtle">' + esc(item.stage) + '</span>' : '') + '</div></div>';
-        }).join('') + '</div>'
-      : '<p class="empty-subtext">No concrete created assets registered yet.</p>';
+  function translateCopilotActionLabel(label) {
+    if (!label) return '';
+    var s = String(label).trim();
+    if (/^Create\s+/i.test(s)) return 'Criar ' + s.replace(/^Create\s+/i, '');
+    if (/^Review\b/i.test(s)) return 'Revisar' + s.replace(/^Review/i, '');
+    if (/^Resolve\b/i.test(s)) return 'Resolver' + s.replace(/^Resolve/i, '');
+    if (/^Refresh\b/i.test(s)) return 'Atualizar' + s.replace(/^Refresh/i, '');
+    if (/^Continue\s+/i.test(s)) return 'Continuar ' + s.replace(/^Continue\s+/i, '');
+    return s;
+  }
 
-    var candidatesHtml = candidates.length
-      ? '<div class="copilot-list">' + candidates.map(function(item) {
+  function humanizeCopilotBlocker(item, detail) {
+    var stageId = detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea';
+    if (!item) return { label: 'Caminho livre — nenhum blocker crítico identificado.', actionLabel: 'Atualizar', expectedPath: '' };
+    if (item.kind === 'candidate-review') {
+      return {
+        label: 'A IA gerou novos documentos. Revise esse material antes de continuar.',
+        actionLabel: 'Revisar',
+        expectedPath: item.expected_path || ''
+      };
+    }
+    if (item.kind === 'open-decision') {
+      return {
+        label: 'Existem decisões em aberto que precisam ser resolvidas antes de avançar.',
+        actionLabel: 'Resolver',
+        expectedPath: ''
+      };
+    }
+    if (item.kind === 'missing-artifact') {
+      var artifact = item.artifact_id || 'artefato';
+      if (artifact === 'architecture') {
+        return {
+          label: 'A especificação precisa de um documento de arquitetura para avançar com segurança.',
+          actionLabel: 'Iniciar Architecture',
+          expectedPath: item.expected_path || 'ARCHITECTURE.md'
+        };
+      }
+      if (artifact === 'spec') {
+        return {
+          label: 'Ainda falta consolidar a especificação principal antes de seguir.',
+          actionLabel: 'Criar spec',
+          expectedPath: item.expected_path || 'docs/spec.md'
+        };
+      }
+      if (artifact === 'test-strategy') {
+        return {
+          label: 'Gere a estratégia de testes antes de executar a validação da entrega.',
+          actionLabel: 'Criar test strategy',
+          expectedPath: item.expected_path || 'docs/test-strategy.md'
+        };
+      }
+      if (artifact === 'runbook') {
+        return {
+          label: 'A operação ainda precisa de um runbook claro para validar a entrega.',
+          actionLabel: 'Criar runbook',
+          expectedPath: item.expected_path || 'docs/runbook.md'
+        };
+      }
+      return {
+        label: 'Falta uma evidência central para liberar a etapa atual.',
+        actionLabel: translateCopilotActionLabel(item.action_label) || 'Continuar etapa',
+        expectedPath: item.expected_path || ''
+      };
+    }
+    if (item.kind === 'readiness-gap') {
+      if (stageId === 'implementation') {
+        return {
+          label: 'A implementação está em andamento. Consolide a evidência antes de avançar para testes.',
+          actionLabel: 'Continuar implementação',
+          expectedPath: ''
+        };
+      }
+      return {
+        label: 'Ainda não há um blocker crítico único, mas a etapa atual precisa de mais evidência para avançar.',
+        actionLabel: translateCopilotActionLabel(item.action_label) || 'Atualizar',
+        expectedPath: ''
+      };
+    }
+    return {
+      label: item.label || 'Caminho livre — nenhum blocker crítico identificado.',
+      actionLabel: translateCopilotActionLabel(item.action_label) || 'Atualizar',
+      expectedPath: item.expected_path || ''
+    };
+  }
+
+  function buildCopilotActionButton(item, detail) {
+    if (!item) return '<button class="btn btn-sm" data-copilot-action="refresh">Atualizar</button>';
+    if (item.action_type === 'review-candidate') {
+      var pendingCandidate = item.candidate_id ? { candidate_id: item.candidate_id } : ((detail.copilot || {}).candidate_artifacts || []).find(function(candidate) {
+        return candidate && candidate.accepted === null && candidate.counts_as_artifact;
+      });
+      return pendingCandidate
+        ? '<button class="btn btn-sm" data-copilot-action="review-candidate" data-candidate-id="' + esc(pendingCandidate.candidate_id || '') + '">' + esc(item.action_label || 'Review') + '</button>'
+        : '<button class="btn btn-sm" data-copilot-action="refresh">' + esc(item.action_label || 'Refresh') + '</button>';
+    }
+    if (item.action_type === 'resolve-decision') {
+      return item.decision_id
+        ? '<button class="btn btn-sm" data-copilot-action="resolve-decision" data-decision-id="' + esc(item.decision_id || '') + '">' + esc(item.action_label || 'Resolve') + '</button>'
+        : '<button class="btn btn-sm" data-copilot-action="add-decision">' + esc(item.action_label || 'Resolve') + '</button>';
+    }
+    if (item.action_type === 'continue-stage') {
+      var stageId = item.artifact_id === 'architecture'
+        ? 'architecture'
+        : item.artifact_id === 'test-strategy'
+          ? 'test'
+          : (item.artifact_id === 'runbook' || item.artifact_id === 'release-plan')
+            ? 'release'
+            : ((detail.copilot || {}).recommended_next_move && ((detail.copilot || {}).recommended_next_move.stage_hint || detail.current_stage_id) || detail.current_stage_id || '');
+      return stageId
+        ? '<button class="btn btn-sm" data-product-action="start-stage" data-stage-id="' + esc(stageId) + '">' + esc(item.action_label || 'Continue') + '</button>'
+        : '<button class="btn btn-sm" data-copilot-action="refresh">' + esc(item.action_label || 'Refresh') + '</button>';
+    }
+    return '<button class="btn btn-sm" data-copilot-action="refresh">' + esc(item.action_label || 'Refresh') + '</button>';
+  }
+
+  function buildCopilotPrimaryMessage(detail, recommendation, blockers, forcedStageId) {
+    var stageId = forcedStageId || (recommendation && recommendation.stage_hint) || detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea';
+    var blocker = blockers[0] || null;
+    if (blocker && blocker.kind === 'candidate-review') {
+      return 'A IA gerou novos documentos. Valide se o conteúdo está correto antes de avançar.';
+    }
+    if (blocker && blocker.kind === 'open-decision') {
+      return 'Existem decisões em aberto que precisam ser resolvidas antes de avançar.';
+    }
+    if (blocker && blocker.kind === 'missing-artifact') {
+      if (blocker.artifact_id === 'architecture') return 'A especificação precisa de um documento de arquitetura para avançar com segurança. Continue com o Claude.';
+      if (blocker.artifact_id === 'spec') return 'O projeto ainda precisa consolidar a especificação principal antes de seguir para a próxima etapa.';
+      if (blocker.artifact_id === 'test-strategy') return 'Gere a estratégia de testes antes de executar. Falta docs/test-strategy.md.';
+      if (blocker.artifact_id === 'runbook') return 'Prepare o runbook e release-plan para validar a entrega.';
+      return 'A etapa atual já tem direção, mas ainda falta uma evidência central para avançar com segurança.';
+    }
+    if (stageId === 'idea' || stageId === 'brief') {
+      return 'O projeto está em branco. Defina a visão do produto iniciando o Briefing com o Gemini.';
+    }
+    if (stageId === 'spec') {
+      return 'A especificação precisa de mais evidência antes do código. Feche escopo e requisitos nesta etapa.';
+    }
+    if (stageId === 'architecture') {
+      return 'A estrutura técnica está definida. O terreno está limpo para iniciar a Implementação com o Codex.';
+    }
+    if (stageId === 'implementation') {
+      return 'A implementação está em andamento. Consolide a evidência antes de avançar para testes.';
+    }
+    if (stageId === 'test') {
+      return 'Gere a estratégia de testes antes de executar. Falta docs/test-strategy.md.';
+    }
+    if (stageId === 'release') {
+      return 'Prepare o runbook e release-plan para validar a entrega.';
+    }
+    if (stageId === 'done') {
+      return 'Produto entregue. Todos os artefatos foram validados.';
+    }
+    return 'O Copilot está analisando o projeto. Continue trabalhando na etapa atual.';
+  }
+
+  function buildCopilotPanel(detail) {
+    var viewModel = resolveCopilotViewModel(detail);
+    var copilot = viewModel.copilot;
+    var blockers = viewModel.blockers;
+    var candidates = viewModel.candidates;
+    var decisions = viewModel.decisions;
+    var recommendation = viewModel.recommendation;
+    var primaryAction = viewModel.action;
+    var state = viewModel.state;
+    var tone = viewModel.riskInfo.tone;
+    var stageLabel = viewModel.stageLabel;
+    var summary = viewModel.summary;
+    var reason = viewModel.reason;
+    var expectedEvidence = viewModel.expectedEvidence;
+    var riskLabel = viewModel.riskInfo.label;
+    var primaryLabel = viewModel.primaryLabel;
+    var blockerItems = blockers.length
+      ? blockers.map(function(item) {
+          var humanized = humanizeCopilotBlocker(item, detail);
+          var actionItem = Object.assign({}, item, { action_label: humanized.actionLabel });
+          return '<div class="copilot-task-row"><div class="copilot-task-copy"><strong>' + esc(humanized.label) + '</strong>' +
+            (humanized.expectedPath ? '<div class="artifact-row-meta mono" style="margin-top:6px">' + esc(humanized.expectedPath) + '</div>' : '') +
+            '</div><div class="copilot-task-actions">' + buildCopilotActionButton(actionItem, detail) + '</div></div>';
+        }).join('')
+      : '<div class="empty-inline-state">Caminho livre — nenhum blocker crítico identificado. Siga para a próxima etapa.</div>';
+    var candidateItems = candidates.length
+      ? '<div class="copilot-list">' + candidates.slice(0, 2).map(function(item) {
           var actionButtons = item.accepted === null
-            ? '<button class="btn btn-sm btn-primary" data-copilot-action="accept-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Accept</button><button class="btn btn-sm" data-copilot-action="reject-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Reject</button>'
-            : '<button class="btn btn-sm" data-copilot-action="review-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Change</button>';
-          return '<div class="copilot-row"><div><strong>' + esc(item.kind_guess || item.relative_path) + '</strong><div class="artifact-row-meta mono" style="margin-top:6px">' + esc(item.relative_path || item.path || '') + '</div><div class="artifact-row-meta" style="margin-top:6px">' + esc(item.reason || '') + '</div></div><div class="copilot-row-actions"><div class="chip-row">' + buildCopilotStateChip(item.state) + (item.mapped_stage ? '<span class="chip subtle">' + esc(item.mapped_stage) + '</span>' : '') + '<span class="chip subtle">' + esc(formatConfidence(item.confidence)) + ' confidence</span></div><div class="chip-row" style="margin-top:8px">' + actionButtons + '</div></div></div>';
+            ? '<button class="btn btn-sm btn-primary" data-copilot-action="accept-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Aceitar</button><button class="btn btn-sm" data-copilot-action="reject-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Rejeitar</button>'
+            : '<button class="btn btn-sm" data-copilot-action="review-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Revisar</button>';
+          return '<div class="copilot-row"><div><strong>' + esc(item.kind_guess || item.relative_path) + '</strong><div class="artifact-row-meta mono" style="margin-top:6px">' + esc(item.relative_path || item.path || '') + '</div></div><div class="copilot-row-actions"><div class="chip-row">' + buildCopilotStateChip(item.state) + '</div><div class="chip-row" style="margin-top:8px">' + actionButtons + '</div></div></div>';
         }).join('') + '</div>'
-      : '<p class="empty-subtext">No artifact candidates need review right now.</p>';
-
-    var decisionsHtml = decisions.length
-      ? '<div class="copilot-list">' + decisions.map(function(item) {
-          return '<div class="copilot-row"><div><strong>' + esc(item.title || 'Untitled decision') + '</strong><div class="artifact-row-meta" style="margin-top:6px">' + esc(item.note || 'No extra note recorded.') + '</div><div class="artifact-row-meta" style="margin-top:6px">' + esc(item.linked_stage || 'no linked stage') + (item.linked_artifacts && item.linked_artifacts.length ? ' | ' + esc(item.linked_artifacts.join(', ')) : '') + '</div></div><div class="copilot-row-actions"><div class="chip-row">' + buildCopilotStateChip(item.status) + '</div><div class="chip-row" style="margin-top:8px"><button class="btn btn-sm" data-copilot-action="' + (item.status === 'resolved' ? 'reopen-decision' : 'resolve-decision') + '" data-decision-id="' + esc(item.decision_id) + '">' + (item.status === 'resolved' ? 'Reopen' : 'Resolve') + '</button></div></div></div>';
+      : '';
+    var decisionItems = decisions.filter(function(item) { return item.status === 'open'; }).slice(0, 2);
+    var decisionHtml = decisionItems.length
+      ? '<div class="copilot-list" style="margin-top:12px">' + decisionItems.map(function(item) {
+          return '<div class="copilot-row"><div><strong>' + esc(item.title || 'Decisão sem título') + '</strong><div class="artifact-row-meta" style="margin-top:6px">' + esc(item.note || 'Essa decisão ainda precisa de confirmação.') + '</div></div><div class="copilot-row-actions"><button class="btn btn-sm" data-copilot-action="resolve-decision" data-decision-id="' + esc(item.decision_id) + '">Resolver</button></div></div>';
         }).join('') + '</div>'
-      : '<p class="empty-subtext">No decision memory recorded yet.</p>';
+      : '';
+    var readinessHtml = buildReadinessPanel(detail, { embedded: true });
 
-    var recommendationHtml = recommendation
-      ? '<div class="summary-callout"><div class="product-row"><strong>' + esc(recommendation.action_type || 'next-move') + '</strong><span class="artifact-row-meta">' + esc(formatConfidence(recommendation.confidence)) + ' confidence</span></div><p style="margin-top:8px">' + esc(recommendation.reason || '') + '</p><div class="chip-row" style="margin-top:10px"><span class="chip subtle">' + esc(recommendation.execution_mode_hint || 'plan-mode') + '</span>' + (recommendation.stage_hint ? '<span class="chip subtle">' + esc(recommendation.stage_hint) + '</span>' : '') + (recommendation.skills_hint ? '<span class="chip subtle">' + esc(recommendation.skills_hint) + '</span>' : '') + '</div>' + (primaryAction ? '<div class="product-detail-actions" style="margin-top:12px">' + buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta', primaryAction.label) + '</div>' : '') + '</div>'
-      : '<p class="empty-subtext">No recommendation available yet.</p>';
-
-    var readinessHtml = '<div class="chip-row" style="margin-top:10px">' +
-      '<span class="chip ' + (delivery.ready_for_test ? 'ok' : 'warn') + '">test: ' + esc(delivery.ready_for_test ? 'ready' : 'not ready') + '</span>' +
-      '<span class="chip ' + (delivery.ready_for_test_deploy ? 'ok' : 'warn') + '">test deploy: ' + esc(delivery.ready_for_test_deploy ? 'ready' : 'not ready') + '</span>' +
-      '<span class="chip ' + (delivery.ready_for_production ? 'ok' : 'warn') + '">production: ' + esc(delivery.ready_for_production ? 'ready' : 'not ready') + '</span>' +
+    return '<section class="detail-panel copilot-hero copilot-tone-' + esc(tone) + '"><div class="panel-header"><h3>Project Copilot</h3><span class="artifact-row-meta">guia operacional</span></div><div class="panel-body">' +
+      '<div class="copilot-hero-top"><div><div class="chip-row"><span class="chip subtle">etapa: ' + esc(stageLabel) + '</span><span class="status-pill copilot-risk-pill copilot-risk-' + esc(tone) + '">' + esc(riskLabel) + '</span></div><p class="copilot-hero-summary">' + esc(summary) + '</p></div>' +
+      (primaryAction ? '<div class="copilot-hero-cta">' + buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta copilot-cta-btn copilot-cta-' + tone, primaryLabel) + '</div>' : '') +
       '</div>' +
-      ((delivery.blocking_reasons || []).length ? '<div class="chip-row" style="margin-top:10px">' + delivery.blocking_reasons.slice(0, 3).map(function(item) {
-        return '<span class="chip warn">' + esc(item) + '</span>';
-      }).join('') + '</div>' : '');
-
-    return '<section class="detail-panel"><div class="panel-header"><h3>Project Copilot</h3><span class="artifact-row-meta">semantic project guidance</span></div><div class="panel-body">' +
-      '<div class="summary-callout"><strong>Project State</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + esc(copilot.summary || state.summary || 'No copilot summary available.') + '</p><div class="meta-list" style="margin-top:10px">' +
-      metaItem('Created Assets', String(state.created_assets_total || createdAssets.length || 0)) +
-      metaItem('Candidates', String(state.candidate_artifacts_total || candidates.length || 0)) +
-      metaItem('Open Decisions', String(state.open_decisions_total || 0)) +
-      '</div>' + blockersHtml + '</div>' +
-      '<div class="detail-grid"><section class="run-card"><div class="product-row"><span class="meta-item-label">Created / Candidate Artifacts</span><div class="chip-row"><button class="btn btn-sm" data-copilot-action="refresh">Refresh</button></div></div><div style="margin-top:10px">' + createdHtml + '</div><div style="margin-top:12px"><div class="meta-item-label">Artifact candidates</div>' + candidatesHtml + '</div></section>' +
-      '<section class="run-card"><div class="product-row"><span class="meta-item-label">Decisions & Open Issues</span><div class="chip-row"><button class="btn btn-sm btn-primary" data-copilot-action="add-decision">Add decision</button></div></div><div style="margin-top:10px">' + decisionsHtml + '</div></section></div>' +
-      '<div class="detail-grid" style="margin-top:12px"><section class="run-card"><span class="meta-item-label">Recommended Next Move</span><div style="margin-top:10px">' + recommendationHtml + '</div></section><section class="run-card"><span class="meta-item-label">Delivery Readiness</span><div style="margin-top:10px">' + readinessHtml + '</div></section></div>' +
+      '<div class="copilot-hero-grid">' +
+      '<section class="summary-callout copilot-callout"><span class="meta-item-label">Por que isso importa</span><p style="margin-top:6px">' + esc(reason) + '</p></section>' +
+      '<section class="summary-callout copilot-callout"><span class="meta-item-label">Evidência esperada</span><p class="mono" style="margin-top:6px">' + esc(expectedEvidence) + '</p></section>' +
+      '</div>' +
+      '<div class="meta-list" style="margin-top:12px">' +
+      metaItem('Assets criados', String(state.created_assets_total || 0)) +
+      metaItem('Candidatos', String(state.candidate_artifacts_total || candidates.length || 0)) +
+      metaItem('Decisões abertas', String(state.open_decisions_total || decisions.filter(function(item) { return item.status === 'open'; }).length || 0)) +
+      metaItem('Agente sugerido', viewModel.agentHint || 'Revisar estado') +
+      '</div>' +
+      '<div class="copilot-task-list" style="margin-top:14px"><div class="product-row"><span class="meta-item-label">Pendências e bloqueios</span><div class="chip-row"><button class="btn btn-sm" data-copilot-action="refresh">Atualizar</button></div></div><div style="margin-top:10px">' + blockerItems + '</div>' + decisionHtml + candidateItems + '</div>' +
+      (readinessHtml ? '<div class="copilot-secondary-sections">' + readinessHtml + '</div>' : '') +
       '</div></section>';
   }
 
@@ -913,7 +1377,6 @@
     const knowledgeBody = buildKnowledgePackPanel(detail) + '<div style="margin-top:14px">' + buildStageKnowledgePanel(detail) + '</div>';
     const technicalBody = buildHandoffHistoryPanel(detail);
     const sessionsBody = '<div class="session-list">' + ((detail.related_sessions || []).map(session => buildProductSessionRow(session)).join('') || '<div class="empty-inline-state">No linked sessions yet.</div>') + '</div>';
-    const nextActionsBody = (detail.next_actions || []).map(action => buildNextActionRow(action, detail)).join('') || '<div class="empty-inline-state">No next action is clearly recommended yet. Review blockers, stage evidence and workspace setup first.</div>';
     const artifactsBody = detail.artifacts.length
       ? '<div class="artifact-list checklist-list">' + detail.artifacts.map(artifact => buildArtifactRow(artifact)).join('') + '</div>'
       : '<div class="empty-inline-state">No governed artifacts are tracked for this product yet.</div>';
@@ -922,14 +1385,10 @@
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
       '<button class="btn btn-sm" data-product-action="change-workspace">Change Runtime Workspace</button>' +
       '</div></div><div class="product-detail-scroll">' +
-      buildExecutiveSummaryPanel(detail, currentRun, latestHandoff) +
-      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Next Action</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + nextActionsBody + '</div></div></section>' +
-      buildBlockersPanel(detail) + '</div>' +
+      buildCopilotPanel(detail) +
       buildCollapsiblePanel('Pipeline', detail.pipeline.length + ' stage(s)', pipelineBody, true) +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Artifact Checklist</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body">' + artifactsBody + '</div></section>' +
       '<section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + currentRunBody + '</div></section></div>' +
-      '<div class="detail-grid">' + buildReadinessPanel(detail) +
-      buildCopilotPanel(detail) + '</div>' +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta">collapsed by default</span></div><div class="panel-body"><div class="detail-grid"><div>' + buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section>' +
       buildOperateLitePanel(detail) + '</div>' +
       '<div class="detail-grid">' + buildCollapsiblePanel('Knowledge Packs & Guidance', ((detail.knowledge_packs || []).length) + ' active', knowledgeBody, false) +
@@ -3083,6 +3542,16 @@
     } else {
       showLogin();
     }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.__VIBE_WORKBOOK_TEST__ = Object.assign({}, window.__VIBE_WORKBOOK_TEST__, {
+      buildProductDetailHtml: buildProductDetailHtml,
+      buildCopilotPanel: buildCopilotPanel,
+      buildReadinessPanel: buildReadinessPanel,
+      resolveCopilotViewModel: resolveCopilotViewModel,
+      buildCopilotPrimaryMessage: buildCopilotPrimaryMessage
+    });
   }
 
   if (document.readyState === 'loading') {

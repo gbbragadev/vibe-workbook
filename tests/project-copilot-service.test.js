@@ -157,3 +157,47 @@ test('project copilot builds conservative delivery readiness for the ZapCam-styl
   assert.equal(snapshot.delivery_readiness.ready_for_production, false);
   assert.ok(snapshot.created_assets.some((item) => item.stage === 'brief'));
 });
+
+test('project copilot recommendation exposes risk, agent hint and cta metadata', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'repo');
+  const storeFile = path.join(dir, 'project-copilot.json');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const service = new ProjectCopilotService({ storeFile });
+  const snapshot = service.buildSnapshot(makeProduct(repoDir, { product_id: 'risk-p1' }), makeContext({
+    current_stage_id: 'implementation',
+    next_actions: [{
+      id: 'next-impl',
+      executable: true,
+      step_id: 'implementation',
+      reason: 'Implementation can start.'
+    }]
+  }));
+
+  assert.equal(snapshot.recommended_next_move.agent_hint, 'Codex');
+  assert.equal(snapshot.recommended_next_move.risk_level, 'medium');
+  assert.equal(snapshot.recommended_next_move.risk_label, 'Atencao recomendada');
+  assert.match(snapshot.recommended_next_move.cta_label, /Implementation/i);
+  assert.equal(typeof snapshot.recommended_next_move.why_this_matters, 'string');
+});
+
+test('project copilot blockers expose expected evidence and actions for missing artifacts', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'repo');
+  const storeFile = path.join(dir, 'project-copilot.json');
+  fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+
+  const service = new ProjectCopilotService({ storeFile });
+  const snapshot = service.buildSnapshot(makeProduct(repoDir, { product_id: 'blocker-p1' }), makeContext({
+    current_stage_id: 'spec',
+    pipeline: [{ stage_id: 'spec', status: 'in-progress', required_artifacts: ['spec', 'architecture'] }]
+  }));
+
+  const specBlocker = snapshot.current_state.blockers.find((item) => item.artifact_id === 'spec');
+  assert.ok(specBlocker);
+  assert.equal(specBlocker.kind, 'missing-artifact');
+  assert.equal(specBlocker.expected_path, 'docs/spec.md');
+  assert.equal(specBlocker.action_type, 'continue-stage');
+  assert.equal(specBlocker.action_label, 'Create spec');
+});

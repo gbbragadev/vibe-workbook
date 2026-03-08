@@ -302,6 +302,89 @@ function normalizeDecision(raw) {
   };
 }
 
+function expectedArtifactPath(artifactId) {
+  switch (String(artifactId || '').toLowerCase()) {
+    case 'brief':
+      return 'docs/brief.md';
+    case 'spec':
+      return 'docs/spec.md';
+    case 'architecture':
+      return 'ARCHITECTURE.md';
+    case 'test-strategy':
+      return 'docs/test-strategy.md';
+    case 'runbook':
+      return 'docs/runbook.md';
+    case 'release-plan':
+      return 'docs/release-plan.md';
+    default:
+      return '';
+  }
+}
+
+function agentHintForStage(stageId) {
+  switch (String(stageId || '').toLowerCase()) {
+    case 'idea':
+    case 'brief':
+      return 'Gemini';
+    case 'spec':
+    case 'architecture':
+      return 'Claude';
+    case 'implementation':
+      return 'Codex';
+    case 'test':
+    case 'release':
+      return 'Claude';
+    default:
+      return '';
+  }
+}
+
+function riskInfoForConfidence(confidence) {
+  const value = Number(confidence || 0);
+  if (!Number.isFinite(value) || value < 0.6) {
+    return {
+      risk_level: 'high',
+      risk_label: 'Risco elevado de retrabalho',
+      risk_summary: 'Avancar agora sem evidencia suficiente tende a gerar retrabalho.'
+    };
+  }
+  if (value >= 0.8) {
+    return {
+      risk_level: 'low',
+      risk_label: 'Caminho seguro',
+      risk_summary: 'A base atual parece consistente para seguir com a proxima etapa.'
+    };
+  }
+  return {
+    risk_level: 'medium',
+    risk_label: 'Atencao recomendada',
+    risk_summary: 'Existe progresso suficiente, mas ainda vale validar a evidencia principal.'
+  };
+}
+
+function stageLabel(stageId) {
+  switch (String(stageId || '').toLowerCase()) {
+    case 'idea':
+      return 'Idea';
+    case 'brief':
+      return 'Briefing';
+    case 'spec':
+      return 'Specification';
+    case 'architecture':
+      return 'Architecture';
+    case 'implementation':
+      return 'Implementation';
+    case 'test':
+      return 'Test';
+    case 'release':
+      return 'Release';
+    case 'done':
+      return 'Done';
+    default:
+      return stageId || 'Unknown';
+  }
+}
+
 class ProjectCopilotService {
   constructor(opts = {}) {
     this.storeFile = opts.storeFile || COPILOT_FILE;
@@ -526,8 +609,13 @@ class ProjectCopilotService {
         if (!artifact || !artifact.exists) {
           blockers.push({
             id: `artifact:${artifactId}`,
+            kind: 'missing-artifact',
             label: `${artifactId} is still missing for stage ${currentStageId}.`,
-            state: 'missing'
+            state: 'missing',
+            artifact_id: artifactId,
+            expected_path: expectedArtifactPath(artifactId),
+            action_type: 'continue-stage',
+            action_label: `Create ${artifactId}`
           });
         }
       }
@@ -535,22 +623,32 @@ class ProjectCopilotService {
     if (candidateNeedsReview.length) {
       blockers.push({
         id: 'candidate-review',
+        kind: 'candidate-review',
         label: `${candidateNeedsReview.length} artifact candidate(s) need review before more work is created.`,
-        state: 'candidate'
+        state: 'candidate',
+        action_type: 'review-candidate',
+        action_label: 'Review artifacts',
+        expected_path: candidateNeedsReview[0].relative_path || ''
       });
     }
     if (openDecisions.length) {
       blockers.push({
         id: 'open-decisions',
+        kind: 'open-decision',
         label: `${openDecisions.length} project decision(s) are still open.`,
-        state: 'blocked'
+        state: 'blocked',
+        action_type: 'resolve-decision',
+        action_label: 'Resolve decisions'
       });
     }
     if (!deliveryReadiness.ready_for_test) {
       blockers.push({
         id: 'test-readiness',
+        kind: 'readiness-gap',
         label: 'The product is not ready for testing yet.',
-        state: 'blocked'
+        state: 'blocked',
+        action_type: 'refresh',
+        action_label: 'Refresh state'
       });
     }
 
@@ -570,6 +668,8 @@ class ProjectCopilotService {
     return {
       summary: summaryBits.join(' '),
       blockers: blockers.slice(0, 3),
+      current_stage_id: currentStageId,
+      current_stage_label: stageLabel(currentStageId),
       created_assets_total: createdAssets.length,
       candidate_artifacts_total: candidates.length,
       open_decisions_total: openDecisions.length
@@ -594,81 +694,110 @@ class ProjectCopilotService {
     const hasCurrentRun = !!context.current_run;
     const pipeline = Array.isArray(context.pipeline) ? context.pipeline : [];
     const currentStage = pipeline.find((item) => item.stage_id === currentStageId) || null;
+    const decorate = (payload) => {
+      const stageHint = payload.stage_hint || currentStageId || '';
+      const risk = riskInfoForConfidence(payload.confidence);
+      return {
+        ...payload,
+        agent_hint: agentHintForStage(stageHint),
+        current_stage_label: stageLabel(stageHint),
+        expected_evidence: payload.expected_evidence || expectedArtifactPath(stageHint === 'test' ? 'test-strategy' : stageHint),
+        cta_label: payload.cta_label || 'Continue current work',
+        why_this_matters: payload.why_this_matters || payload.reason,
+        ...risk
+      };
+    };
 
     if (candidateNeedsReview.length) {
-      return {
+      return decorate({
         action_type: 'review-artifact-candidates',
         reason: 'There are plausible artifact candidates outside the canonical path. Review them before creating duplicate work.',
         confidence: 0.9,
         execution_mode_hint: 'plan-mode',
         skills_hint: skillsHint,
-        stage_hint: candidateNeedsReview[0].mapped_stage || currentStageId || ''
-      };
+        stage_hint: candidateNeedsReview[0].mapped_stage || currentStageId || '',
+        expected_evidence: candidateNeedsReview[0].relative_path || '',
+        cta_label: 'Review handoff artifacts',
+        why_this_matters: 'Validar os artefatos candidatos evita trabalho duplicado e libera a proxima fase com contexto confiavel.'
+      });
     }
 
     if (openDecisions.length) {
-      return {
+      return decorate({
         action_type: 'resolve-open-issues',
         reason: 'Open project decisions are still blocking coherence. Resolve them before pushing the workflow forward.',
         confidence: 0.82,
         execution_mode_hint: 'plan-mode',
         skills_hint: skillsHint,
-        stage_hint: currentStageId || ''
-      };
+        stage_hint: currentStageId || '',
+        cta_label: 'Resolve open decisions',
+        why_this_matters: 'Sem fechar as decisoes abertas, a implementacao tende a seguir com ambiguidades e retrabalho.'
+      });
     }
 
     if (currentStage && currentStage.status === 'in-progress' && hasCurrentRun) {
-      return {
+      return decorate({
         action_type: 'rework-current-stage',
         reason: 'The current stage is already in progress. Tighten the artifact evidence before moving on.',
         confidence: 0.78,
         execution_mode_hint: currentStageId === 'implementation' ? 'subagents' : 'direct-execution',
         skills_hint: skillsHint,
-        stage_hint: currentStageId
-      };
+        stage_hint: currentStageId,
+        cta_label: `Continue ${stageLabel(currentStageId)}`,
+        why_this_matters: `A etapa de ${stageLabel(currentStageId)} ja esta em andamento e precisa consolidar evidencia antes do avanco.`
+      });
     }
 
     if (nextAction && nextAction.executable !== false) {
-      return {
+      return decorate({
         action_type: 'advance-stage',
         reason: nextAction.reason || 'The next governed action is ready to execute.',
         confidence: 0.74,
         execution_mode_hint: (nextAction.step_id || '') === 'implementation' ? 'subagents' : 'direct-execution',
         skills_hint: skillsHint,
-        stage_hint: nextAction.step_id || nextAction.stage_id || currentStageId || ''
-      };
+        stage_hint: nextAction.step_id || nextAction.stage_id || currentStageId || '',
+        cta_label: `Start ${stageLabel(nextAction.step_id || nextAction.stage_id || currentStageId || '')}`,
+        why_this_matters: 'Avancar na proxima etapa destrava a entrega oficial do fluxo Gemini -> Claude -> Codex.'
+      });
     }
 
     if (deliveryReadiness.ready_for_test && !deliveryReadiness.ready_for_test_deploy) {
-      return {
+      return decorate({
         action_type: 'prepare-test-deploy',
         reason: 'The product looks testable, but operational release evidence is still thin.',
         confidence: 0.68,
         execution_mode_hint: 'plan-mode',
         skills_hint: '',
-        stage_hint: 'release'
-      };
+        stage_hint: 'release',
+        expected_evidence: expectedArtifactPath('runbook'),
+        cta_label: 'Prepare release evidence',
+        why_this_matters: 'Sem runbook e evidencias operacionais, o produto para antes do deploy de teste.'
+      });
     }
 
     if (deliveryReadiness.ready_for_production) {
-      return {
+      return decorate({
         action_type: 'review-for-production',
         reason: 'Heuristics say the product is close to production review. Validate manually before treating it as ready.',
         confidence: 0.66,
         execution_mode_hint: 'plan-mode',
         skills_hint: '',
-        stage_hint: 'release'
-      };
+        stage_hint: 'release',
+        cta_label: 'Review for release',
+        why_this_matters: 'Uma revisao final confirma se a evidencia esta suficiente antes de tratar o produto como pronto.'
+      });
     }
 
-    return {
+    return decorate({
       action_type: 'clarify-project-state',
       reason: `The platform still lacks enough semantic evidence to move ${product.name} confidently.`,
       confidence: 0.6,
       execution_mode_hint: 'plan-mode',
       skills_hint: skillsHint,
-      stage_hint: currentStageId || ''
-    };
+      stage_hint: currentStageId || '',
+      cta_label: currentStageId ? `Continue ${stageLabel(currentStageId)}` : 'Start briefing',
+      why_this_matters: 'Sem evidencias basicas do produto, a plataforma nao consegue orientar a proxima etapa com seguranca.'
+    });
   }
 
   buildSnapshot(product, context = {}) {
