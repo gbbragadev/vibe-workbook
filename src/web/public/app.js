@@ -435,6 +435,78 @@
     renderCurrentView();
   }
 
+  function resolveOverviewPrimaryAction(product) {
+    const currentRun = resolveCurrentRun(product);
+    const nextAction = (product.next_actions || []).find(item => item && item.executable !== false && (item.step_id || item.stage_id));
+    const readyStage = (product.pipeline || []).find(step => step && step.status === 'ready');
+
+    if (currentRun && currentRun.stage_id && currentRun.stage_id !== 'idea' && currentRun.is_ready_to_complete) {
+      return {
+        action: 'complete-stage',
+        label: 'Finish stage',
+        description: 'This run already has enough evidence to close the current stage.',
+        stageId: currentRun.stage_id
+      };
+    }
+    if (nextAction) {
+      return {
+        action: 'execute-next-action',
+        label: currentRun ? 'Execute next step' : 'Continue stage',
+        description: nextAction.label || nextAction.reason || 'Use the next recommended action for this product.',
+        actionId: nextAction.id || '',
+        stageId: nextAction.step_id || nextAction.stage_id || ''
+      };
+    }
+    if (readyStage) {
+      return {
+        action: 'start-stage',
+        label: 'Start ready stage',
+        description: readyStage.goal || (readyStage.label + ' is ready to continue.'),
+        stageId: readyStage.stage_id
+      };
+    }
+    return {
+      action: 'open-detail',
+      label: 'Open product',
+      description: currentRun
+        ? 'Review the active run and decide the next move.'
+        : 'Open the product cockpit to review the current state.'
+    };
+  }
+
+  function buildOverviewPrimaryActionButton(product, action) {
+    if (!action) return '';
+    if (action.action === 'execute-next-action') {
+      return '<button class="btn btn-primary btn-cta" data-product-card-action="execute-next-action" data-product-id="' + esc(product.product_id) + '" data-action-id="' + esc(action.actionId || '') + '" data-stage-id="' + esc(action.stageId || '') + '">' + esc(action.label) + '</button>';
+    }
+    if (action.action === 'start-stage') {
+      return '<button class="btn btn-primary btn-cta" data-product-card-action="start-stage" data-product-id="' + esc(product.product_id) + '" data-stage-id="' + esc(action.stageId || '') + '">' + esc(action.label) + '</button>';
+    }
+    if (action.action === 'complete-stage') {
+      return '<button class="btn btn-primary btn-cta" data-product-card-action="complete-stage" data-product-id="' + esc(product.product_id) + '" data-stage-id="' + esc(action.stageId || '') + '">' + esc(action.label) + '</button>';
+    }
+    return '<button class="btn btn-cta" data-product-card-action="open-detail" data-product-id="' + esc(product.product_id) + '">' + esc(action.label) + '</button>';
+  }
+
+  async function handleOverviewPrimaryAction(actionEl) {
+    const productId = actionEl.dataset.productId;
+    const actionType = actionEl.dataset.productCardAction;
+    if (!productId) return;
+    if (actionType === 'execute-next-action') {
+      await executeNextAction(productId, { id: actionEl.dataset.actionId, step_id: actionEl.dataset.stageId });
+      return;
+    }
+    if (actionType === 'start-stage') {
+      await startGuidedStage(productId, actionEl.dataset.stageId);
+      return;
+    }
+    if (actionType === 'complete-stage') {
+      await registerHandoff(productId, actionEl.dataset.stageId);
+      return;
+    }
+    setActiveProduct(productId);
+  }
+
   async function renderProductsView() {
     const overview = document.getElementById('products-overview');
     const summary = document.getElementById('products-summary');
@@ -455,23 +527,35 @@
       const nextAction = (product.next_actions || [])[0];
       const knowledgeSummary = product.knowledge_summary || { active_packs: 0, active_pack_names: [] };
       const currentRun = resolveCurrentRun(product);
+      const primaryAction = resolveOverviewPrimaryAction(product);
       const productStatus = (product.pipeline || []).some(step => step.status === 'in-progress')
         ? 'in-progress'
         : ((product.pipeline || []).some(step => step.status === 'ready') ? 'ready' : 'not-started');
+      const stageLabel = currentRun ? (currentRun.stage_label || currentRun.stage_id || 'active run') : (product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea');
+      const readinessLabel = (product.readiness && product.readiness.status) ? String(product.readiness.status).replace(/-/g, ' ') : 'not assessed';
+      const workspaceWarning = (product.workspace || {}).path_status && (product.workspace || {}).path_status !== 'valid'
+        ? '<span class="chip warn">runtime workspace needs attention</span>'
+        : '';
       return '<article class="product-card ' + (product.product_id === activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +
         '<div class="product-card-top"><div><div class="product-card-name">' + esc(product.name) + '</div>' +
-        '<div class="chip-row" style="margin-top:6px"><span class="chip">' + esc(product.category) + '</span><span class="chip ok">declared: ' + esc(product.declared_stage) + '</span><span class="chip ' + stageSignalClass(product.computed_stage_signal) + '">signal: ' + esc(product.computed_stage_signal) + '</span></div></div>' +
+        '<div class="chip-row" style="margin-top:6px"><span class="chip">' + esc(product.category) + '</span><span class="chip subtle">stage: ' + esc(stageLabel) + '</span>' + workspaceWarning + '</div></div>' +
         '<span class="status-pill ' + productStatus + '">' + stageStatusLabel(productStatus) + '</span></div>' +
         '<div class="product-card-summary">' + esc(product.summary || 'No product summary available.') + '</div>' +
-        '<div class="product-card-stats"><div class="product-stat"><div class="product-stat-label">Artifacts</div><div class="product-stat-value">' + artifact.present + '/' + artifact.total + '</div></div><div class="product-stat"><div class="product-stat-label">Sessions</div><div class="product-stat-value">' + ((product.related_sessions || []).length) + '</div></div><div class="product-stat"><div class="product-stat-label">Runtime WS</div><div class="product-stat-value">' + esc((product.workspace || {}).path_status || 'none') + '</div></div><div class="product-stat"><div class="product-stat-label">Knowledge</div><div class="product-stat-value">' + esc(String(knowledgeSummary.active_packs || 0)) + '</div></div></div>' +
+        '<div class="product-card-stats"><div class="product-stat"><div class="product-stat-label">Artifacts</div><div class="product-stat-value">' + artifact.present + '/' + artifact.total + '</div></div><div class="product-stat"><div class="product-stat-label">Sessions</div><div class="product-stat-value">' + ((product.related_sessions || []).length) + '</div></div><div class="product-stat"><div class="product-stat-label">Readiness</div><div class="product-stat-value">' + esc(readinessLabel) + '</div></div><div class="product-stat"><div class="product-stat-label">Knowledge</div><div class="product-stat-value">' + esc(String(knowledgeSummary.active_packs || 0)) + '</div></div></div>' +
         '<div class="chip-row knowledge-chip-row" style="margin-top:10px">' + buildKnowledgePackChips(product.active_knowledge_packs || [], true) + '</div>' +
         (currentRun ? '<div class="product-card-run"><span class="product-card-run-label">Current run</span><strong>' + esc(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') + '</strong><span class="artifact-row-meta">' + esc(currentRun.objective || 'Coordinated execution in progress.') + '</span></div>' : '') +
-        '<div style="margin-top:12px"><strong style="font-size:12px">Next</strong><div class="artifact-row-meta" style="margin-top:4px">' + esc(nextAction ? nextAction.label : 'No next action') + '</div></div>' +
+        '<div class="product-card-footer"><div><div class="product-card-next-label">Recommended next move</div><div class="artifact-row-meta" style="margin-top:4px">' + esc(primaryAction ? primaryAction.description : (nextAction ? nextAction.label : 'Review the product detail to decide the next move.')) + '</div></div><div class="product-card-footer-actions">' + buildOverviewPrimaryActionButton(product, primaryAction) + '</div></div>' +
         '</article>';
     }).join('');
 
     overview.querySelectorAll('.product-card').forEach(card => {
       card.addEventListener('click', () => setActiveProduct(card.dataset.productId));
+    });
+    overview.querySelectorAll('[data-product-card-action]').forEach(button => {
+      button.addEventListener('click', async function(event) {
+        event.stopPropagation();
+        await handleOverviewPrimaryAction(button);
+      });
     });
 
     detail.innerHTML = '<div class="empty-panel"><h3>Loading product</h3><p class="empty-subtext">Preparing detail...</p></div>';
@@ -533,6 +617,7 @@
     var candidates = (copilot.candidate_artifacts || []).slice(0, 6);
     var decisions = (copilot.decision_log || []).slice(0, 6);
     var recommendation = copilot.recommended_next_move || null;
+    var primaryAction = resolvePrimaryProductAction(detail);
     var delivery = copilot.delivery_readiness || { blocking_reasons: [] };
     var state = copilot.current_state || {};
 
@@ -564,7 +649,7 @@
       : '<p class="empty-subtext">No decision memory recorded yet.</p>';
 
     var recommendationHtml = recommendation
-      ? '<div class="summary-callout"><div class="product-row"><strong>' + esc(recommendation.action_type || 'next-move') + '</strong><span class="artifact-row-meta">' + esc(formatConfidence(recommendation.confidence)) + ' confidence</span></div><p style="margin-top:8px">' + esc(recommendation.reason || '') + '</p><div class="chip-row" style="margin-top:10px"><span class="chip subtle">' + esc(recommendation.execution_mode_hint || 'plan-mode') + '</span>' + (recommendation.stage_hint ? '<span class="chip subtle">' + esc(recommendation.stage_hint) + '</span>' : '') + (recommendation.skills_hint ? '<span class="chip subtle">' + esc(recommendation.skills_hint) + '</span>' : '') + '</div></div>'
+      ? '<div class="summary-callout"><div class="product-row"><strong>' + esc(recommendation.action_type || 'next-move') + '</strong><span class="artifact-row-meta">' + esc(formatConfidence(recommendation.confidence)) + ' confidence</span></div><p style="margin-top:8px">' + esc(recommendation.reason || '') + '</p><div class="chip-row" style="margin-top:10px"><span class="chip subtle">' + esc(recommendation.execution_mode_hint || 'plan-mode') + '</span>' + (recommendation.stage_hint ? '<span class="chip subtle">' + esc(recommendation.stage_hint) + '</span>' : '') + (recommendation.skills_hint ? '<span class="chip subtle">' + esc(recommendation.skills_hint) + '</span>' : '') + '</div>' + (primaryAction ? '<div class="product-detail-actions" style="margin-top:12px">' + buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta', primaryAction.label) + '</div>' : '') + '</div>'
       : '<p class="empty-subtext">No recommendation available yet.</p>';
 
     var readinessHtml = '<div class="chip-row" style="margin-top:10px">' +
@@ -588,6 +673,116 @@
       '</div></section>';
   }
 
+  function resolvePrimaryProductAction(detail) {
+    const currentRun = resolveCurrentRun(detail);
+    const nextAction = (detail.next_actions || []).find(item => item && item.executable !== false && (item.step_id || item.stage_id));
+    const primarySession = currentRun ? pickPrimaryRunSession(currentRun, detail) : null;
+    const recommendedStage = ((detail.copilot || {}).recommended_next_move || {}).stage_hint
+      || (((detail.pipeline || []).find(step => step && step.status === 'ready') || {}).stage_id || '');
+
+    if (currentRun && currentRun.stage_id && currentRun.stage_id !== 'idea' && currentRun.is_ready_to_complete) {
+      return {
+        type: 'complete-stage',
+        label: 'Finish current stage',
+        description: 'The current run already has enough evidence to save the handoff.',
+        stageId: currentRun.stage_id
+      };
+    }
+    if (nextAction) {
+      return {
+        type: 'execute-next-action',
+        label: 'Execute next step',
+        description: nextAction.reason || nextAction.label || 'Use the recommended next step for this product.',
+        actionId: nextAction.id || '',
+        stageId: nextAction.step_id || nextAction.stage_id || ''
+      };
+    }
+    if (recommendedStage) {
+      return {
+        type: 'start-stage',
+        label: 'Continue stage',
+        description: ((detail.copilot || {}).recommended_next_move || {}).reason || 'Continue the next stage with the available context.',
+        stageId: recommendedStage
+      };
+    }
+    if (primarySession) {
+      return {
+        type: 'open-session',
+        label: 'Open active session',
+        description: 'Jump back into the main execution session for this product.',
+        sessionId: primarySession.id
+      };
+    }
+    if ((detail.workspace || {}).runtime_workspace_id) {
+      return {
+        type: 'open-workspace',
+        label: 'Open runtime workspace',
+        description: 'Review the execution environment for this product.',
+        workspaceId: detail.workspace.runtime_workspace_id
+      };
+    }
+    return null;
+  }
+
+  function buildPrimaryActionButton(action, classNames, overrideLabel) {
+    if (!action) return '';
+    var label = overrideLabel || action.label || 'Continue';
+    var btnClass = classNames || 'btn btn-primary';
+    if (action.type === 'execute-next-action') {
+      return '<button class="' + esc(btnClass) + '" data-product-action="execute-next-action" data-action-id="' + esc(action.actionId || '') + '" data-stage-id="' + esc(action.stageId || '') + '">' + esc(label) + '</button>';
+    }
+    if (action.type === 'start-stage') {
+      return '<button class="' + esc(btnClass) + '" data-product-action="start-stage" data-stage-id="' + esc(action.stageId || '') + '">' + esc(label) + '</button>';
+    }
+    if (action.type === 'complete-stage') {
+      return '<button class="' + esc(btnClass) + '" data-stage-action="complete" data-stage-id="' + esc(action.stageId || '') + '">' + esc(label) + '</button>';
+    }
+    if (action.type === 'open-session') {
+      return '<button class="' + esc(btnClass) + '" data-stage-action="open-session" data-session-id="' + esc(action.sessionId || '') + '">' + esc(label) + '</button>';
+    }
+    if (action.type === 'open-workspace') {
+      return '<button class="' + esc(btnClass) + '" data-product-action="open-workspace">' + esc(label) + '</button>';
+    }
+    return '';
+  }
+
+  function buildCollapsiblePanel(title, meta, bodyHtml, open) {
+    return '<section class="detail-panel collapsible-panel"><details class="panel-disclosure"' + (open ? ' open' : '') + '><summary class="panel-disclosure-summary"><div><strong>' + esc(title) + '</strong><div class="artifact-row-meta">' + esc(meta || '') + '</div></div><span class="chip subtle">details</span></summary><div class="panel-body">' + bodyHtml + '</div></details></section>';
+  }
+
+  function buildExecutiveSummaryPanel(detail, currentRun, latestHandoff) {
+    var primaryAction = resolvePrimaryProductAction(detail);
+    var copilot = detail.copilot || {};
+    var blockers = ((copilot.current_state || {}).blockers || []).slice(0, 3);
+    var artifactSummary = detail.artifact_summary || { present: 0, total: 0 };
+    var stageLabel = detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea';
+    var readiness = detail.readiness || {};
+    var technicalSummary = '<details class="inline-details"><summary>Technical context</summary><div class="inline-details-body"><div class="meta-list">' +
+      metaItem('Owner', detail.owner) +
+      metaItem('Runtime Workspace', ((detail.workspace || {}).linked_workspace_name || (detail.workspace || {}).runtime_workspace_id || 'none')) +
+      metaItem('Repo', ((detail.repo || {}).local_path || 'unknown')) +
+      metaItem('Declared Stage', detail.declared_stage || 'unknown') +
+      metaItem('Stage Signal', detail.computed_stage_signal || 'unknown') +
+      metaItem('Tracked Runs', String(((detail.runs || []).length))) +
+      metaItem('Handoffs', String(((detail.handoffs || []).length))) +
+      metaItem('Latest Completion', latestHandoff ? formatDateTime(latestHandoff.created_at) : 'none') +
+      '</div></div></details>';
+    var blockerHtml = blockers.length
+      ? '<div class="chip-row" style="margin-top:10px">' + blockers.map(function(item) {
+          return '<span class="chip warn">' + esc(item.label) + '</span>';
+        }).join('') + '</div>'
+      : '<div class="artifact-row-meta" style="margin-top:10px">No critical blockers surfaced right now.</div>';
+    var openSessionButton = currentRun && pickPrimaryRunSession(currentRun, detail)
+      ? buildPrimaryActionButton({
+          type: 'open-session',
+          sessionId: pickPrimaryRunSession(currentRun, detail).id,
+          label: 'Open active session'
+        }, 'btn')
+      : '';
+
+    return '<section class="detail-panel executive-panel"><div class="panel-header"><h3>Product State</h3><span class="artifact-row-meta">executive summary</span></div><div class="panel-body"><div class="executive-grid"><div><div class="chip-row"><span class="chip subtle">stage: ' + esc(stageLabel) + '</span><span class="chip ' + stageSignalClass(detail.computed_stage_signal) + '">signal: ' + esc(detail.computed_stage_signal || stageLabel) + '</span><span class="chip ' + (readiness.status === 'ready-for-release-candidate' ? 'ok' : readiness.status === 'needs-evidence' ? 'warn' : 'subtle') + '">' + esc(readiness.label || 'not assessed') + '</span></div><p class="executive-summary">' + esc(copilot.summary || detail.summary || 'Review the product state, evidence and next move.') + '</p><div class="meta-list executive-meta"><div><span class="meta-item-label">Artifacts</span><span class="mono">' + esc(String(artifactSummary.present || 0) + '/' + String(artifactSummary.total || 0)) + '</span></div><div><span class="meta-item-label">Current Run</span><span class="mono">' + esc(currentRun ? (currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') : 'none') + '</span></div><div><span class="meta-item-label">Open Blockers</span><span class="mono">' + esc(String(blockers.length)) + '</span></div><div><span class="meta-item-label">Ready for Test</span><span class="mono">' + esc(((copilot.delivery_readiness || {}).ready_for_test) ? 'yes' : 'no') + '</span></div></div>' + blockerHtml + technicalSummary + '</div><div class="executive-cta-card"><div class="run-kicker">Recommended next move</div><strong>' + esc(primaryAction ? primaryAction.label : 'Review product state') + '</strong><p class="artifact-row-meta" style="margin-top:8px">' + esc(primaryAction ? primaryAction.description : 'Use the product detail below to choose the next step.') + '</p><div class="product-detail-actions executive-actions">' + (primaryAction ? buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta') : '') + openSessionButton + '</div></div></div></div></section>';
+  }
+
   function buildOperateLitePanel(detail) {
     var op = detail.operate_lite;
     if (!op) return '';
@@ -596,47 +791,55 @@
       '<div class="evidence-summary-stat"><div class="product-stat-label">Total Handoffs</div><div class="product-stat-value">' + (evidenceSummary.total_handoffs || 0) + '</div></div>' +
       '<div class="evidence-summary-stat"><div class="product-stat-label">Evidence Outputs</div><div class="product-stat-value">' + (evidenceSummary.total_evidence_outputs || 0) + '</div></div>' +
       '</div>';
-    return '<section class="detail-panel"><div class="panel-header"><h3>Operate Lite</h3><span class="artifact-chip ' + (op.runbook_status === 'present' ? 'exists' : 'missing') + '">runbook: ' + esc(op.runbook_status) + '</span></div><div class="panel-body">' +
-      '<div class="meta-list">' +
+    var body = '<div class="meta-list">' +
       metaItem('Runbook Status', op.runbook_status) +
       metaItem('Runbook Path', op.runbook_path || 'N/A') +
       metaItem('Readiness Evaluation', 'On-demand (computed per request)') +
       metaItem('Operational Notes', op.operational_notes || 'None') +
       '</div>' +
       evidenceHtml +
-      (op.next_post_release_action ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Post-Release Action</span><p style="margin-top:6px;font-size:13px">' + esc(op.next_post_release_action) + '</p></div>' : '') +
-      '</div></section>';
+      (op.next_post_release_action ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Post-Release Action</span><p style="margin-top:6px;font-size:13px">' + esc(op.next_post_release_action) + '</p></div>' : '');
+    return buildCollapsiblePanel('Operate Lite', 'runbook: ' + esc(op.runbook_status), body, false);
   }
 
   function buildProductDetailHtml(detail) {
     const currentRun = resolveCurrentRun(detail);
     const latestHandoff = resolveLatestHandoff(detail.handoffs || []);
-    return '<div class="product-detail-header"><div class="product-row"><div><h2>' + esc(detail.name) + '</h2><div class="product-subtitle">' + esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + esc(detail.category) + '</span><span class="chip ok">declared: ' + esc(detail.declared_stage) + '</span><span class="chip ' + stageSignalClass(detail.computed_stage_signal) + '">signal: ' + esc(detail.computed_stage_signal) + '</span>' + buildKnowledgePackChips(detail.knowledge_packs || []) + '</div></div><div class="product-detail-actions">' +
+    const pipelineBody = '<div class="pipeline-list">' + detail.pipeline.map(step => buildStepCard(step)).join('') + '</div>';
+    const knowledgeBody = buildKnowledgePackPanel(detail) + '<div style="margin-top:14px">' + buildStageKnowledgePanel(detail) + '</div>';
+    const technicalBody = buildHandoffHistoryPanel(detail);
+    const sessionsBody = '<div class="session-list">' + ((detail.related_sessions || []).map(session => buildProductSessionRow(session)).join('') || '<p>No linked sessions yet.</p>') + '</div>';
+    return '<div class="product-detail-header"><div class="product-row"><div><h2>' + esc(detail.name) + '</h2><div class="product-subtitle">' + esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + esc(detail.category) + '</span><span class="chip subtle">stage: ' + esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
       '<button class="btn btn-sm" data-product-action="change-workspace">Change Runtime Workspace</button>' +
       '</div></div><div class="product-detail-scroll">' +
-      '<section class="detail-panel"><div class="panel-header"><h3>Operational Summary</h3><span class="status-pill ' + esc((detail.workspace || {}).path_status || 'unknown') + '">' + esc((detail.workspace || {}).path_status || 'unknown') + '</span></div><div class="panel-body"><div class="meta-list">' +
-      metaItem('Owner', detail.owner) + metaItem('Status', detail.status) + metaItem('Runtime Workspace', ((detail.workspace || {}).linked_workspace_name || (detail.workspace || {}).runtime_workspace_id || 'none')) + metaItem('Repo', ((detail.repo || {}).local_path || 'unknown')) + metaItem('Knowledge Packs', String(((detail.knowledge_packs || []).length))) + metaItem('Current Stage', detail.current_stage_id || detail.computed_stage_signal || 'idea') + metaItem('Tracked Runs', String(((detail.runs || []).length))) + metaItem('Handoffs', String(((detail.handoffs || []).length))) +
-      '</div>' + (latestHandoff ? '<div class="summary-callout"><span class="meta-item-label">Latest completion</span>' + buildHandoffSummaryInline(latestHandoff) + '</div>' : '') + '</div></section>' +
+      buildExecutiveSummaryPanel(detail, currentRun, latestHandoff) +
       buildCopilotPanel(detail) +
-      '<section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + buildCurrentRunPanel(detail, currentRun) + '</div></section>' +
-      buildReadinessPanel(detail) +
-      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Pipeline</h3><span class="artifact-row-meta">' + detail.pipeline.length + ' stages</span></div><div class="panel-body"><div class="pipeline-list">' + detail.pipeline.map(step => buildStepCard(step)).join('') + '</div></div></section>' +
-      '<section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => '<div class="artifact-row"><div class="product-row"><h4>' + esc(artifact.label) + '</h4><span class="artifact-chip ' + (artifact.exists ? 'exists' : 'missing') + '">' + (artifact.exists ? 'present' : 'missing') + '</span></div><div class="artifact-row-meta mono" style="margin-top:8px">' + esc(artifact.path || 'No path configured') + '</div></div>').join('') + '</div></div></section></div>' +
-      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Knowledge Packs</h3><span class="artifact-row-meta">' + ((detail.knowledge_packs || []).length) + ' active</span></div><div class="panel-body">' + buildKnowledgePackPanel(detail) + '</div></section>' +
-      '<section class="detail-panel"><div class="panel-header"><h3>Stage Knowledge</h3><span class="artifact-row-meta">current: ' + esc(detail.current_stage_id || detail.computed_stage_signal || 'idea') + '</span></div><div class="panel-body">' + buildStageKnowledgePanel(detail) + '</div></section></div>' +
-      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Next Actions</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + ((detail.next_actions || []).map(action => buildNextActionRow(action, detail)).join('') || '<p>No next actions available.</p>') + '</div></div></section>' +
-      '<section class="detail-panel"><div class="panel-header"><h3>Related Sessions</h3><span class="artifact-row-meta">' + ((detail.related_sessions || []).length) + ' linked</span></div><div class="panel-body"><div class="session-list">' + ((detail.related_sessions || []).map(session => buildProductSessionRow(session)).join('') || '<p>No linked sessions yet.</p>') + '</div></div></section></div>' +
-      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Stage Completions</h3><span class="artifact-row-meta">' + ((detail.handoffs || []).length) + ' records</span></div><div class="panel-body">' + buildHandoffHistoryPanel(detail) + '</div></section>' +
-      buildOperateLitePanel(detail) + '</div></div>';
+      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => '<div class="artifact-row"><div class="product-row"><h4>' + esc(artifact.label) + '</h4><span class="artifact-chip ' + (artifact.exists ? 'exists' : 'missing') + '">' + (artifact.exists ? 'present' : 'missing') + '</span></div><div class="artifact-row-meta mono" style="margin-top:8px">' + esc(artifact.path || 'No path configured') + '</div></div>').join('') + '</div></div></section>' +
+      buildReadinessPanel(detail) + '</div>' +
+      '<div class="detail-grid"><section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + buildCurrentRunPanel(detail, currentRun) + '</div></section>' +
+      '<section class="detail-panel"><div class="panel-header"><h3>Next Actions</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + ((detail.next_actions || []).map(action => buildNextActionRow(action, detail)).join('') || '<p>No next actions available.</p>') + '</div></div></section></div>' +
+      '<div class="detail-grid">' + buildCollapsiblePanel('Pipeline', detail.pipeline.length + ' stages', pipelineBody, false) +
+      '<section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta">collapsed by default</span></div><div class="panel-body"><div class="detail-grid"><div>' + buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section></div>' +
+      '<div class="detail-grid">' + buildCollapsiblePanel('Knowledge Packs & Guidance', ((detail.knowledge_packs || []).length) + ' active', knowledgeBody, false) +
+      buildOperateLitePanel(detail) + '</div>' +
+      '</div></div>';
   }
 
   function buildStepCard(step) {
+    var technicalRows = '';
+    if (step.active_run_id) {
+      technicalRows += '<div class="action-row-meta"><span class="meta-item-label">Active run</span><div class="chip-row"><span class="chip subtle">' + esc(step.active_run_id) + '</span></div></div>';
+    }
+    if (step.latest_completion) {
+      technicalRows += '<div class="action-row-meta"><span class="meta-item-label">Latest completion</span>' + buildHandoffSummaryInline(step.latest_completion) + '</div>';
+    }
+    if (step.latest_incoming_handoff) {
+      technicalRows += '<div class="action-row-meta"><span class="meta-item-label">Incoming context</span>' + buildHandoffSummaryInline(step.latest_incoming_handoff) + '</div>';
+    }
     return '<article class="step-card"><div class="step-card-top"><div><h4>' + esc(step.label) + '</h4><div class="step-card-meta"><span class="status-pill ' + esc(step.status) + '">' + esc(stageStatusLabel(step.status)) + '</span><span class="chip">' + esc(step.recommended_role) + '</span><span class="chip">' + esc(step.recommended_runtime_agent) + '</span></div></div></div><div class="step-card-goal">' + esc(step.goal) + '</div>' +
-      (step.active_run_id ? '<div class="action-row-meta"><span class="meta-item-label">Active run</span><div class="chip-row"><span class="chip subtle">' + esc(step.active_run_id) + '</span></div></div>' : '') +
-      (step.latest_completion ? '<div class="action-row-meta"><span class="meta-item-label">Latest completion</span>' + buildHandoffSummaryInline(step.latest_completion) + '</div>' : '') +
-      (step.latest_incoming_handoff ? '<div class="action-row-meta"><span class="meta-item-label">Incoming context</span>' + buildHandoffSummaryInline(step.latest_incoming_handoff) + '</div>' : '') +
-      '<div class="step-card-actions"><button class="btn btn-sm btn-primary" data-stage-action="start" data-stage-id="' + step.stage_id + '">Start Step</button>' + (step.active_session_id ? '<button class="btn btn-sm" data-stage-action="open-session" data-session-id="' + step.active_session_id + '">Open Session</button>' : '') + (step.stage_id !== 'idea' ? '<button class="btn btn-sm" data-stage-action="complete" data-stage-id="' + step.stage_id + '">Complete Stage</button>' : '') + '</div></article>';
+      (technicalRows ? '<details class="inline-details"><summary>Execution details</summary><div class="inline-details-body">' + technicalRows + '</div></details>' : '') +
+      '<div class="step-card-actions"><button class="btn btn-sm btn-primary" data-stage-action="start" data-stage-id="' + step.stage_id + '">Continue</button>' + (step.active_session_id ? '<button class="btn btn-sm" data-stage-action="open-session" data-session-id="' + step.active_session_id + '">Open Session</button>' : '') + (step.stage_id !== 'idea' ? '<button class="btn btn-sm" data-stage-action="complete" data-stage-id="' + step.stage_id + '">Finish Stage</button>' : '') + '</div></article>';
   }
 
   function buildNextActionRow(action, detail) {
@@ -648,17 +851,22 @@
     const outputs = normalizeOutputList(action.expected_outputs || action.outputs_expected || []);
     const trace = [stageId ? ('stage: ' + stageId) : '', role ? ('role: ' + role) : '', runtime ? ('runtime: ' + runtime) : '', runId ? ('run: ' + runId) : ''].filter(Boolean).join(' | ');
     const executable = action.executable !== false && !!stageId;
+    const technicalDetails = (trace || knowledge || (action.uses_previous_handoff && action.previous_handoff_summary) || outputs.length)
+      ? '<details class="inline-details"><summary>Why this step is recommended</summary><div class="inline-details-body">' +
+        (trace ? '<div class="action-row-trace">' + esc(trace) + '</div>' : '') +
+        (knowledge ? '<div class="action-row-meta"><span class="meta-item-label">Knowledge preset</span>' + buildKnowledgeDriverInline(knowledge) + '</div>' : '') +
+        (action.uses_previous_handoff && action.previous_handoff_summary
+          ? '<div class="action-row-meta"><span class="meta-item-label">Previous stage completion</span><div class="artifact-row-meta">' + esc(action.previous_handoff_summary) + '</div><div class="chip-row" style="margin-top:6px"><span class="chip knowledge">uses previous stage completion</span>' + (action.previous_handoff_id ? '<span class="chip subtle">' + esc(action.previous_handoff_id) + '</span>' : '') + '</div></div>'
+          : '') +
+        (outputs.length ? '<div class="action-row-meta"><span class="meta-item-label">Expected outputs</span><div class="chip-row">' + outputs.map(item => '<span class="chip">' + esc(item) + '</span>').join('') + '</div></div>' : '') +
+      '</div></details>'
+      : '';
     return '<div class="action-row">' +
       '<div class="action-row-copy"><strong>' + esc(action.label) + '</strong><span>' + esc(action.reason || 'No rationale available.') + '</span>' +
-      (trace ? '<div class="action-row-trace">' + esc(trace) + '</div>' : '') +
-      (knowledge ? '<div class="action-row-meta"><span class="meta-item-label">Knowledge preset</span>' + buildKnowledgeDriverInline(knowledge) + '</div>' : '') +
-      (action.uses_previous_handoff && action.previous_handoff_summary
-        ? '<div class="action-row-meta"><span class="meta-item-label">Previous stage completion</span><div class="artifact-row-meta">' + esc(action.previous_handoff_summary) + '</div><div class="chip-row" style="margin-top:6px"><span class="chip knowledge">uses previous stage completion</span>' + (action.previous_handoff_id ? '<span class="chip subtle">' + esc(action.previous_handoff_id) + '</span>' : '') + '</div></div>'
-        : '') +
-      (outputs.length ? '<div class="action-row-meta"><span class="meta-item-label">Expected outputs</span><div class="chip-row">' + outputs.map(item => '<span class="chip">' + esc(item) + '</span>').join('') + '</div></div>' : '') +
+      technicalDetails +
       '</div>' +
       '<div class="action-row-actions">' +
-      (executable ? '<button class="btn btn-sm btn-primary" data-product-action="execute-next-action" data-action-id="' + esc(action.id || '') + '" data-stage-id="' + esc(stageId) + '">Execute</button>' : '') +
+      (executable ? '<button class="btn btn-sm btn-primary btn-cta" data-product-action="execute-next-action" data-action-id="' + esc(action.id || '') + '" data-stage-id="' + esc(stageId) + '">Execute next step</button>' : '') +
       (stageId ? '<button class="btn btn-sm" data-product-action="start-stage" data-stage-id="' + esc(stageId) + '">Customize</button>' : '') +
       '</div></div>';
   }
@@ -667,7 +875,7 @@
     const meta = AGENT_META[session.agent] || { icon: '?' };
     const runId = session.runId || session.run_id || '';
     const sessionMeta = ['stage: ' + (session.stageId || 'manual'), 'role: ' + (session.role || 'none')].concat([runId ? ('run:' + runId) : '', session.model || '', session.effort ? ('effort:' + session.effort) : ''].filter(Boolean)).join(' | ');
-    return '<div class="session-row-inline"><div class="product-row"><h4>' + esc(session.name) + '</h4><div class="chip-row"><span class="agent-badge ' + session.agent + '">' + meta.icon + '</span><span class="status-pill ' + session.status + '">' + esc(stageStatusLabel(session.status)) + '</span></div></div><div class="session-inline-meta">' + esc(sessionMeta) + '</div><div class="session-inline-path">' + esc(session.workingDir || 'No working directory') + '</div><div class="step-card-actions"><button class="btn btn-sm" data-stage-action="open-session" data-session-id="' + session.id + '">Open Session</button>' + (session.status === 'running' ? '<button class="btn btn-sm" data-session-action="stop" data-session-id="' + session.id + '">Stop</button><button class="btn btn-sm" data-session-action="restart" data-session-id="' + session.id + '">Restart</button>' : '<button class="btn btn-sm btn-primary" data-session-action="start" data-session-id="' + session.id + '">Start</button><button class="btn btn-sm" data-session-action="restart" data-session-id="' + session.id + '">Restart</button>') + '<button class="btn btn-sm" data-session-action="delete" data-session-id="' + session.id + '">Delete</button></div></div>';
+    return '<div class="session-row-inline"><div class="product-row"><h4>' + esc(session.name) + '</h4><div class="chip-row"><span class="agent-badge ' + session.agent + '">' + meta.icon + '</span><span class="status-pill ' + session.status + '">' + esc(stageStatusLabel(session.status)) + '</span></div></div><div class="session-inline-meta">' + esc((session.agent || 'agent') + ' | ' + (session.status || 'unknown')) + '</div><details class="inline-details"><summary>Technical context</summary><div class="inline-details-body"><div class="artifact-row-meta">' + esc(sessionMeta) + '</div><div class="session-inline-path">' + esc(session.workingDir || 'No working directory') + '</div></div></details><div class="step-card-actions"><button class="btn btn-sm" data-stage-action="open-session" data-session-id="' + session.id + '">Open Session</button>' + (session.status === 'running' ? '<button class="btn btn-sm" data-session-action="stop" data-session-id="' + session.id + '">Stop</button><button class="btn btn-sm" data-session-action="restart" data-session-id="' + session.id + '">Restart</button>' : '<button class="btn btn-sm btn-primary" data-session-action="start" data-session-id="' + session.id + '">Start</button><button class="btn btn-sm" data-session-action="restart" data-session-id="' + session.id + '">Restart</button>') + '<button class="btn btn-sm" data-session-action="delete" data-session-id="' + session.id + '">Delete</button></div></div>';
   }
 
   function buildKnowledgePackChips(packs, compact) {
@@ -755,6 +963,7 @@
     root.querySelectorAll('[data-stage-action="open-session"]').forEach(el => el.addEventListener('click', () => openSessionInTerminals(el.dataset.sessionId, detail.product_id)));
     root.querySelectorAll('[data-run-action="open-session"]').forEach(el => el.addEventListener('click', () => openSessionInTerminals(el.dataset.sessionId, detail.product_id)));
     root.querySelectorAll('[data-run-action="complete-stage"]').forEach(el => el.addEventListener('click', () => registerHandoff(detail.product_id, el.dataset.stageId)));
+    root.querySelectorAll('[data-run-action="discard-run"]').forEach(el => el.addEventListener('click', () => discardRun(detail.product_id, el.dataset.runId)));
     root.querySelectorAll('[data-run-action="start-session"]').forEach(el => el.addEventListener('click', () => startSession(el.dataset.sessionId)));
     root.querySelectorAll('[data-run-action="restart-session"]').forEach(el => el.addEventListener('click', () => restartSession(el.dataset.sessionId)));
     root.querySelectorAll('[data-session-action="start"]').forEach(el => el.addEventListener('click', () => startSession(el.dataset.sessionId)));
@@ -998,6 +1207,21 @@
     await startGuidedStage(productId, stageId);
   }
 
+  async function discardRun(productId, runId) {
+    if (!confirm('Are you sure you want to discard this run\'s changes? This will hard reset the working directory to the pre-run checkpoint and cannot be undone.')) return;
+    try {
+      const res = await api('/products/' + encodeURIComponent(productId) + '/runs/' + encodeURIComponent(runId) + '/rollback', {
+        method: 'POST'
+      });
+      alert(res.message || 'Rollback successful');
+      await loadProducts(true);
+      await loadProductDetail(productId, true);
+      renderCurrentView();
+    } catch (e) {
+      alert('Rollback failed: ' + e.message);
+    }
+  }
+
   async function registerHandoff(productId, fromStage) {
     const detail = await loadProductDetail(productId, true);
     const currentRun = resolveCurrentRun(detail);
@@ -1026,6 +1250,8 @@
     var gateStatus3A = detail.transition_gate_status || 'no-contract';
     var evRpt3A = detail.evidence_report;
     var gateHtml3A = '';
+    const gateLabel = gateStatus3A === 'passing' ? 'Ready to finish' : gateStatus3A === 'blocked' ? 'Needs more evidence' : 'Manual review';
+    const carryForwardCount = selectedOutputRefs.length + existingArtifacts.length;
     if (gateStatus3A === 'blocked' && evRpt3A && evRpt3A.stage_in_scope) {
       var missingList3A = (evRpt3A.missing_required || []).map(function(a) { return '<span class="chip warn">' + esc(a) + '</span>'; }).join('');
       gateHtml3A = '<div class="gate-warning-callout"><strong>&#9940; Execution gate: blocked</strong><p>Required artifacts not yet verified on disk:</p><div class="chip-row" style="margin-top:8px">' + (missingList3A || '<span class="chip warn">unknown</span>') + '</div><p style="margin-top:8px;font-size:12px;color:var(--text-muted)">You can still complete this stage, but the gate will be recorded as blocked.</p></div>';
@@ -1043,18 +1269,22 @@
         (currentKnowledge ? '<div style="margin-top:10px">' + buildKnowledgeDriverInline(currentKnowledge) + '</div>' : '') +
         '</div></section>'
       : '<section class="dialog-section"><div class="dialog-section-title">Execution Context</div><div class="dialog-knowledge-block"><div class="artifact-row-meta">No active run is linked to this stage right now. This completion will still be saved manually.</div></div></section>';
-    showDialog('Complete Stage', runContext + lowEvidenceHtml + gateHtml3A +
-      '<section class="dialog-section"><div class="dialog-section-title">Suggested Handoff</div>' +
-      '<label>From Stage</label><input type="text" value="' + esc(fromStage) + '" disabled>' +
-      '<label>To Stage</label><select id="dlg-handoff-to">' + STAGE_ORDER.filter(stage => stage !== 'idea').map(stage => '<option value="' + stage + '"' + (stage === nextStage ? ' selected' : '') + '>' + esc(stage) + '</option>').join('') + '</select>' +
+    showDialog('Finish Stage', '<section class="dialog-section"><div class="dialog-section-title">Quick Finish</div><div class="summary-callout"><div class="product-row"><strong>' + esc(fromStage) + ' -> ' + esc(nextStage) + '</strong><span class="chip ' + (gateStatus3A === 'passing' ? 'ok' : gateStatus3A === 'blocked' ? 'warn' : 'subtle') + '">' + esc(gateLabel) + '</span></div><div class="chip-row" style="margin-top:10px"><span class="chip subtle">carry forward: ' + esc(String(carryForwardCount)) + '</span><span class="chip subtle">artifacts on disk: ' + esc(String(existingArtifacts.length)) + '</span><span class="chip subtle">evidence seen: ' + esc(String(evidenceCount)) + '</span></div><p style="margin-top:8px;font-size:13px;color:var(--text-secondary)">The platform already filled the next stage, session and runtime context for you. Review the handoff summary, then finish the stage.</p></div></section>' + runContext + lowEvidenceHtml + gateHtml3A +
+      '<section class="dialog-section"><div class="dialog-section-title">What the next stage should continue with</div>' +
+      '<label>Completion summary</label><textarea id="dlg-handoff-summary" placeholder="Review and adjust the suggested completion summary.">' + esc(summaryDraft) + '</textarea>' +
+      '<div class="dialog-inline-summary"><div><span class="meta-item-label">Current stage</span><span class="mono">' + esc(fromStage) + '</span></div><div><span class="meta-item-label">Next stage</span><span class="mono">' + esc(nextStage) + '</span></div><div><span class="meta-item-label">Linked session</span><span class="mono">' + esc(defaultSessionId || 'auto') + '</span></div></div>' +
+      '</section>' +
+      '<details class="dialog-accordion"><summary>Advanced options</summary><div class="dialog-accordion-body">' +
+      '<label>Next stage</label><select id="dlg-handoff-to">' + STAGE_ORDER.filter(stage => stage !== 'idea').map(stage => '<option value="' + stage + '"' + (stage === nextStage ? ' selected' : '') + '>' + esc(stage) + '</option>').join('') + '</select>' +
       '<label>Role</label><input type="text" id="dlg-handoff-role" value="' + esc((linkedRun && linkedRun.role) || 'delivery-handoff') + '">' +
       '<label>Runtime Agent</label><select id="dlg-handoff-agent">' + buildAgentOptions((linkedRun && linkedRun.suggested_runtime_agent) || 'claude', Object.keys(AGENT_META)) + '</select>' +
       '<label>Linked Session ID (optional)</label><input type="text" id="dlg-handoff-session" placeholder="sess-..." value="' + esc(defaultSessionId) + '">' +
-      '<label>Summary</label><textarea id="dlg-handoff-summary" placeholder="Review and adjust the suggested completion summary.">' + esc(summaryDraft) + '</textarea>' +
-      '</section>' +
-      '<section class="dialog-section"><div class="dialog-section-title">Carry Forward</div><label>Produced outputs to carry forward</label>' + outputChecks + '<label style="margin-top:10px">Artifact refs</label>' + artifactChecks + '<label style="margin-top:10px">Expected output snapshot</label><div class="dialog-knowledge-block compact">' + expectedSnapshot + '</div></section>', [
+      '<label>Carry forward outputs</label>' + outputChecks +
+      '<label style="margin-top:10px">Carry forward artifacts</label>' + artifactChecks +
+      '<label style="margin-top:10px">Expected output snapshot</label><div class="dialog-knowledge-block compact">' + expectedSnapshot + '</div>' +
+      '</div></details>', [
       { label: 'Cancel', onClick: function() {} },
-      { label: 'Complete Stage', primary: true, onClick: async function() {
+      { label: 'Finish Stage', primary: true, onClick: async function() {
         await api('/products/' + encodeURIComponent(productId) + '/handoffs', {
           method: 'POST',
           body: JSON.stringify({
@@ -1607,7 +1837,7 @@
       return '<div class="handoff-row">' +
         '<div class="product-row"><strong>' + esc(handoff.from_stage) + ' -> ' + esc(handoff.to_stage) + '</strong><div class="chip-row"><span class="chip">' + esc(handoff.role || 'unknown-role') + '</span>' + (fromCurrentRun ? '<span class="chip knowledge">from current run</span>' : '') + '</div></div>' +
         '<div class="handoff-summary">' + esc(handoff.summary || '') + '</div>' +
-        '<div class="handoff-meta-grid">' +
+        '<details class="inline-details"><summary>Technical context</summary><div class="inline-details-body"><div class="handoff-meta-grid">' +
           metaItem('Run', handoff.run_id || 'none') +
           metaItem('Session', handoff.session_id || 'none') +
           metaItem('Runtime', handoff.runtime_agent || 'unknown-agent') +
@@ -1615,7 +1845,7 @@
         '</div>' +
         (handoff.knowledge_driver ? '<div class="action-row-meta"><span class="meta-item-label">Knowledge Driver</span>' + buildKnowledgeDriverInline(handoff.knowledge_driver) + '</div>' : '') +
         '<div class="action-row-meta"><span class="meta-item-label">Artifacts</span>' + buildOutputReferenceChips((handoff.artifact_refs || []).map(item => ({ label: item })), 'No artifacts referenced.') + '</div>' +
-        '<div class="action-row-meta"><span class="meta-item-label">Outputs</span>' + buildOutputReferenceChips((handoff.output_refs || []).map(item => ({ label: item })), 'No outputs referenced.') + '</div>' +
+        '<div class="action-row-meta"><span class="meta-item-label">Outputs</span>' + buildOutputReferenceChips((handoff.output_refs || []).map(item => ({ label: item })), 'No outputs referenced.') + '</div></div></details>' +
       '</div>';
     }).join('') + '</div>';
   }
@@ -1648,33 +1878,38 @@
       : (Array.isArray(run.handoffs) ? run.handoffs.length : ((detail.handoffs || []).filter(item => (item.run_id || item.runId) === runId).length));
 
     return '<div class="run-shell">' +
-      '<div class="run-status-row"><div><div class="run-kicker">Run</div><div class="run-id mono">' + esc(runId) + '</div></div><div class="chip-row"><span class="status-pill ' + esc(run.status || 'in-progress') + '">' + esc(stageStatusLabel(run.status || 'in-progress')) + '</span><span class="chip">' + esc(stageId) + '</span><span class="chip">' + esc(role) + '</span><span class="chip">' + esc(runtimeAgent) + '</span></div></div>' +
+      '<div class="run-status-row"><div><div class="run-kicker">Execution</div><div class="artifact-row-meta">Current stage in motion</div></div><div class="chip-row"><span class="status-pill ' + esc(run.status || 'in-progress') + '">' + esc(stageStatusLabel(run.status || 'in-progress')) + '</span><span class="chip">' + esc(stageId) + '</span><span class="chip">' + esc(role) + '</span><span class="chip">' + esc(runtimeAgent) + '</span></div></div>' +
       '<div class="run-objective">' + esc(run.objective || 'No run objective registered yet.') + '</div>' +
-      (run.is_ready_to_complete ? '<div class="summary-callout success"><span class="meta-item-label">Ready to complete</span><div class="artifact-row-meta">This run has linked execution context and produced outputs that can be carried into the next stage.</div></div>' : '') +
-      (knowledge ? '<div class="run-card"><span class="meta-item-label">Knowledge Driver</span>' + buildKnowledgeDriverInline(knowledge) + '<div class="artifact-row-meta" style="margin-top:8px">This execution was started from a curated preset.</div></div>' : '') +
-      (incomingHandoff ? '<div class="run-card"><span class="meta-item-label">Incoming Context</span><div class="handoff-summary">' + esc(incomingHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((incomingHandoff.from_stage || 'unknown') + ' -> ' + (incomingHandoff.to_stage || stageId)) + '</div>' + buildOutputReferenceChips((incomingHandoff.output_refs || []).map(item => ({ label: item })), 'No outputs referenced from the previous stage.') + '</div>' : '') +
+      (run.is_ready_to_complete ? '<div class="summary-callout ok"><span class="meta-item-label">Ready to complete</span><div class="artifact-row-meta">This run has linked execution context and produced outputs that can be carried into the next stage.</div></div>' : '') +
+      (run.pre_run_hash ? '<div class="summary-callout warn" style="margin-top:8px"><span class="meta-item-label">Safe Checkpoint Available</span><div class="artifact-row-meta">This run started from a clean repository state (' + esc(run.pre_run_hash.substring(0, 7)) + '). You can safely discard all changes if things go wrong.</div></div>' : '') +
       '<div class="meta-list run-meta-list">' +
       metaItem('Product', detail.name) +
       metaItem('Stage', stageId) +
-      metaItem('Runtime Workspace', workspaceName) +
-      metaItem('Primary Session', primarySession ? primarySession.id : 'none') +
       metaItem('Linked Sessions', String(runSessions.length)) +
       metaItem('Handoffs', String(handoffCount)) +
       metaItem('Required Outputs', String(completion.required_produced_total || 0) + '/' + String(completion.required_expected_total || 0)) +
       metaItem('Outputs', String(completion.produced_total || 0) + '/' + String(completion.expected_total || 0)) +
       metaItem('Updated', formatDateTime(run.updated_at || run.created_at || Date.now())) +
       '</div>' +
+      ((knowledge || incomingHandoff || latestHandoff || primarySession) ? '<details class="inline-details"><summary>Execution details</summary><div class="inline-details-body"><div class="meta-list run-meta-list">' +
+        metaItem('Run ID', runId) +
+        metaItem('Runtime Workspace', workspaceName) +
+        metaItem('Primary Session', primarySession ? primarySession.id : 'none') +
+        '</div>' +
+        (knowledge ? '<div class="run-card"><span class="meta-item-label">Knowledge Driver</span>' + buildKnowledgeDriverInline(knowledge) + '<div class="artifact-row-meta" style="margin-top:8px">This execution was started from a curated preset.</div></div>' : '') +
+        (incomingHandoff ? '<div class="run-card"><span class="meta-item-label">Incoming Context</span><div class="handoff-summary">' + esc(incomingHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((incomingHandoff.from_stage || 'unknown') + ' -> ' + (incomingHandoff.to_stage || stageId)) + '</div>' + buildOutputReferenceChips((incomingHandoff.output_refs || []).map(item => ({ label: item })), 'No outputs referenced from the previous stage.') + '</div>' : '') +
+        (latestHandoff ? '<div class="run-card"><div class="product-row"><span class="meta-item-label">Latest Completion</span><span class="artifact-row-meta">' + esc(formatDateTime(latestHandoff.created_at)) + '</span></div><div class="handoff-summary">' + esc(latestHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((latestHandoff.from_stage || stageId) + ' -> ' + (latestHandoff.to_stage || 'unknown')) + '</div>' + ((run.next_stage_hint || latestHandoff.to_stage) ? '<div class="artifact-row-meta" style="margin-top:6px">Next stage hint: ' + esc(run.next_stage_hint || latestHandoff.to_stage) + '</div>' : '') + '</div>' : '') +
+      '</div></details>' : '') +
       '<div class="run-body-grid">' +
         '<div class="run-card"><span class="meta-item-label">Expected Outputs</span>' + buildRunOutputList(expectedOutputs, 'No expected outputs declared.') + '</div>' +
         '<div class="run-card"><span class="meta-item-label">Produced Outputs</span>' + buildCategorizedOutputList(producedOutputs) + '</div>' +
       '</div>' +
-      (latestHandoff ? '<div class="run-card"><div class="product-row"><span class="meta-item-label">Latest Completion</span><span class="artifact-row-meta">' + esc(formatDateTime(latestHandoff.created_at)) + '</span></div><div class="handoff-summary">' + esc(latestHandoff.summary || '') + '</div><div class="artifact-row-meta" style="margin-top:8px">' + esc((latestHandoff.from_stage || stageId) + ' -> ' + (latestHandoff.to_stage || 'unknown')) + '</div>' + ((run.next_stage_hint || latestHandoff.to_stage) ? '<div class="artifact-row-meta" style="margin-top:6px">Next stage hint: ' + esc(run.next_stage_hint || latestHandoff.to_stage) + '</div>' : '') + '</div>' : '') +
       '<div class="run-card" style="margin-top:12px"><div class="product-row"><span class="meta-item-label">Run Sessions</span><span class="artifact-row-meta">' + esc(String(runSessions.length)) + ' linked</span></div>' +
       (runSessions.length
         ? '<div class="run-session-list">' + runSessions.map(session => '<div class="run-session-row"><div><strong>' + esc(session.name) + '</strong><div class="artifact-row-meta">' + esc((session.agent || 'agent') + ' | ' + (session.status || 'unknown')) + '</div></div><div class="chip-row"><button class="btn btn-sm" data-run-action="open-session" data-session-id="' + esc(session.id) + '">Open</button>' + (session.status === 'running' ? '<button class="btn btn-sm" data-run-action="restart-session" data-session-id="' + esc(session.id) + '">Restart</button>' : '<button class="btn btn-sm btn-primary" data-run-action="start-session" data-session-id="' + esc(session.id) + '">Start</button>') + '</div></div>').join('') + '</div>'
         : '<p class="empty-subtext" style="margin-top:8px">This run has no linked sessions yet. Executing the next action or starting the current stage will attach the first executor session.</p>') +
       '</div>' +
-      (stageId !== 'idea' ? '<div class="step-card-actions run-primary-actions"><button class="btn btn-primary" data-run-action="complete-stage" data-stage-id="' + esc(stageId) + '">Complete Current Stage</button></div>' : '') +
+      (stageId !== 'idea' ? '<div class="step-card-actions run-primary-actions"><button class="btn btn-primary" data-run-action="complete-stage" data-stage-id="' + esc(stageId) + '">Complete Current Stage</button>' + (run.pre_run_hash ? '<button class="btn" style="color:var(--text-warn)" data-run-action="discard-run" data-run-id="' + esc(runId) + '">Discard Run Changes</button>' : '') + '</div>' : '') +
       '</div>';
   }
 
