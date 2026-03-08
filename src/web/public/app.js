@@ -733,10 +733,10 @@
   }
 
   function resolveCopilotAgentHint(stageId, recommendation) {
-    if (recommendation && recommendation.agent_hint) return recommendation.agent_hint;
     if (stageId === 'idea' || stageId === 'brief') return 'Gemini';
     if (stageId === 'spec' || stageId === 'architecture' || stageId === 'test' || stageId === 'release') return 'Claude';
     if (stageId === 'implementation') return 'Codex';
+    if (recommendation && recommendation.agent_hint) return recommendation.agent_hint;
     return '';
   }
 
@@ -944,7 +944,9 @@
     if (action.type === 'complete-stage') {
       return 'Concluir ' + resolveCopilotStageLabel(action.stageId || stageId) + (agentHint ? ' (' + agentHint + ')' : '');
     }
-    var actionStageId = action.stageId || stageId || 'brief';
+    var actionStageId = (action.type === 'start-stage' && action.stageId)
+      ? action.stageId
+      : (stageId || action.stageId || 'brief');
     var verb = action.type === 'start-stage'
       ? (actionStageId === 'brief' ? 'Iniciar' : 'Continuar')
       : 'Continuar';
@@ -955,10 +957,10 @@
     var copilot = detail.copilot || {};
     var recommendation = copilot.recommended_next_move || null;
     var primaryAction = resolvePrimaryProductAction(detail);
-    var stageId = (recommendation && recommendation.stage_hint)
-      || detail.current_stage_id
+    var stageId = detail.current_stage_id
       || detail.computed_stage_signal
       || detail.declared_stage
+      || (recommendation && recommendation.stage_hint)
       || (primaryAction && primaryAction.stageId)
       || 'idea';
     var blockers = ((((copilot || {}).current_state || {}).blockers) || []).slice(0, 3);
