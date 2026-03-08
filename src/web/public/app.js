@@ -46,6 +46,8 @@
   async function api(path, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    // Force no-store to avoid stale API responses (fixes BUG-001 frontend mismatch)
+    opts.cache = opts.cache || 'no-store';
     const res = await fetch(`/api${path}`, { ...opts, headers });
     if (res.status === 401) { showLogin(); throw new Error('Unauthorized'); }
     const data = await res.json().catch(() => ({}));
@@ -573,7 +575,8 @@
     var readiness = detail.readiness;
     if (!readiness) return '';
     var releasePacket = detail.release_packet || {};
-    var statusClass = readiness.status === 'ready-for-release-candidate' ? 'readiness-ready' : readiness.status === 'needs-evidence' ? 'readiness-needs-evidence' : 'readiness-not-ready';
+    var displayReadiness = deriveReadinessDisplay(readiness);
+    var statusClass = displayReadiness.status === 'ready-for-release-candidate' ? 'readiness-ready' : displayReadiness.status === 'needs-evidence' ? 'readiness-needs-evidence' : 'readiness-not-ready';
     var signalsHtml = (readiness.signals || []).map(function(s) {
       var strength = s.strength || 'none';
       var dots = strength === 'strong' ? '●●●' : strength === 'sufficient' ? '●●' : strength === 'weak' ? '●' : '';
@@ -588,13 +591,47 @@
       var label = contentState === 'skeletal' ? 'skeletal' : (a.exists ? 'present' : 'missing');
       return '<span class="artifact-chip ' + esc(contentState === 'valid' ? 'exists' : contentState) + '">' + esc(a.label) + ': ' + label + '</span>';
     }).join('');
-    return '<section class="detail-panel"><div class="panel-header"><h3>Release Readiness</h3><span class="status-pill ' + esc(statusClass) + '">' + esc(readiness.label) + '</span></div><div class="panel-body">' +
-      '<div class="summary-callout ' + statusClass + '"><strong>' + esc(readiness.label) + '</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + esc(readiness.summary || '') + '</p></div>' +
+    return '<section class="detail-panel"><div class="panel-header"><h3>Release Readiness</h3><span class="status-pill ' + esc(statusClass) + '">' + esc(displayReadiness.label) + '</span></div><div class="panel-body">' +
+      '<div class="summary-callout ' + statusClass + '"><strong>' + esc(displayReadiness.label) + '</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + esc(displayReadiness.summary) + '</p></div>' +
       '<div class="readiness-signals">' + signalsHtml + '</div>' +
       gapsHtml +
       (keyArtifactsHtml ? '<div style="margin-top:12px"><span class="meta-item-label">Key Artifacts</span><div class="chip-row" style="margin-top:6px">' + keyArtifactsHtml + '</div></div>' : '') +
       (releasePacket.next_release_step ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Release Step</span><p style="margin-top:6px;font-size:13px">' + esc(releasePacket.next_release_step) + '</p></div>' : '') +
       '</div></section>';
+  }
+
+  function deriveReadinessDisplay(readiness) {
+    var fallbackStatus = (readiness && readiness.status) || 'not-ready';
+    var fallbackLabel = (readiness && readiness.label) || 'Not ready';
+    var signals = Array.isArray(readiness && readiness.signals) ? readiness.signals : [];
+    if (!signals.length) {
+      return {
+        status: fallbackStatus,
+        label: fallbackLabel,
+        summary: (readiness && readiness.summary) || ''
+      };
+    }
+
+    var metSignals = signals.filter(function(signal) { return !!signal.met; }).length;
+    if (metSignals === signals.length) {
+      return {
+        status: 'ready-for-release-candidate',
+        label: 'All signals met',
+        summary: (readiness && readiness.summary) || 'All signals met.'
+      };
+    }
+    if (metSignals >= 3) {
+      return {
+        status: 'needs-evidence',
+        label: 'Needs more evidence',
+        summary: (readiness && readiness.summary) || ''
+      };
+    }
+    return {
+      status: 'not-ready',
+      label: fallbackLabel === 'Needs more evidence' ? 'Not ready' : fallbackLabel,
+      summary: (readiness && readiness.summary) || ''
+    };
   }
 
   function formatConfidence(value) {
@@ -759,6 +796,7 @@
     var artifactSummary = detail.artifact_summary || { present: 0, total: 0 };
     var stageLabel = detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea';
     var readiness = detail.readiness || {};
+    var displayReadiness = deriveReadinessDisplay(readiness);
     var technicalSummary = '<details class="inline-details"><summary>Technical context</summary><div class="inline-details-body"><div class="meta-list">' +
       metaItem('Owner', detail.owner) +
       metaItem('Runtime Workspace', ((detail.workspace || {}).linked_workspace_name || (detail.workspace || {}).runtime_workspace_id || 'none')) +
@@ -782,7 +820,7 @@
         }, 'btn')
       : '';
 
-    return '<section class="detail-panel executive-panel"><div class="panel-header"><h3>Product State</h3><span class="artifact-row-meta">executive summary</span></div><div class="panel-body"><div class="executive-grid"><div><div class="chip-row"><span class="chip subtle">stage: ' + esc(stageLabel) + '</span><span class="chip ' + stageSignalClass(detail.computed_stage_signal) + '">signal: ' + esc(detail.computed_stage_signal || stageLabel) + '</span><span class="chip ' + (readiness.status === 'ready-for-release-candidate' ? 'ok' : readiness.status === 'needs-evidence' ? 'warn' : 'subtle') + '">' + esc(readiness.label || 'not assessed') + '</span></div><p class="executive-summary">' + esc(copilot.summary || detail.summary || 'Review the product state, evidence and next move.') + '</p><div class="meta-list executive-meta"><div><span class="meta-item-label">Artifacts</span><span class="mono">' + esc(String(artifactSummary.present || 0) + '/' + String(artifactSummary.total || 0)) + '</span></div><div><span class="meta-item-label">Current Run</span><span class="mono">' + esc(currentRun ? (currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') : 'none') + '</span></div><div><span class="meta-item-label">Open Blockers</span><span class="mono">' + esc(String(blockers.length)) + '</span></div><div><span class="meta-item-label">Ready for Test</span><span class="mono">' + esc(((copilot.delivery_readiness || {}).ready_for_test) ? 'yes' : 'no') + '</span></div></div>' + blockerHtml + technicalSummary + '</div><div class="executive-cta-card"><div class="run-kicker">Recommended next move</div><strong>' + esc(primaryAction ? primaryAction.label : 'Review product state') + '</strong><p class="artifact-row-meta" style="margin-top:8px">' + esc(primaryAction ? primaryAction.description : 'Use the product detail below to choose the next step.') + '</p><div class="product-detail-actions executive-actions">' + (primaryAction ? buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta') : '') + openSessionButton + '</div></div></div></div></section>';
+    return '<section class="detail-panel executive-panel"><div class="panel-header"><h3>Product State</h3><span class="artifact-row-meta">executive summary</span></div><div class="panel-body"><div class="executive-grid"><div><div class="chip-row"><span class="chip subtle">stage: ' + esc(stageLabel) + '</span><span class="chip ' + stageSignalClass(detail.computed_stage_signal) + '">signal: ' + esc(detail.computed_stage_signal || stageLabel) + '</span><span class="chip ' + (displayReadiness.status === 'ready-for-release-candidate' ? 'ok' : displayReadiness.status === 'needs-evidence' ? 'warn' : 'subtle') + '">' + esc(displayReadiness.label || 'not assessed') + '</span></div><p class="executive-summary">' + esc(copilot.summary || detail.summary || 'Review the product state, evidence and next move.') + '</p><div class="meta-list executive-meta"><div><span class="meta-item-label">Artifacts</span><span class="mono">' + esc(String(artifactSummary.present || 0) + '/' + String(artifactSummary.total || 0)) + '</span></div><div><span class="meta-item-label">Current Run</span><span class="mono">' + esc(currentRun ? (currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') : 'none') + '</span></div><div><span class="meta-item-label">Open Blockers</span><span class="mono">' + esc(String(blockers.length)) + '</span></div><div><span class="meta-item-label">Ready for Test</span><span class="mono">' + esc(((copilot.delivery_readiness || {}).ready_for_test) ? 'yes' : 'no') + '</span></div></div>' + blockerHtml + technicalSummary + '</div><div class="executive-cta-card"><div class="run-kicker">Recommended next move</div><strong>' + esc(primaryAction ? primaryAction.label : 'Review product state') + '</strong><p class="artifact-row-meta" style="margin-top:8px">' + esc(primaryAction ? primaryAction.description : 'Use the product detail below to choose the next step.') + '</p><div class="product-detail-actions executive-actions">' + (primaryAction ? buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta') : '') + openSessionButton + '</div></div></div></div></section>';
   }
 
   function buildOperateLitePanel(detail) {
