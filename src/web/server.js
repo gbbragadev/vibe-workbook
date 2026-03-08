@@ -213,6 +213,42 @@ function createServer() {
     res.json(run);
   });
 
+  app.post('/api/products/:id/copilot/candidates/:candidateId/review', (req, res) => {
+    const accepted = req.body && req.body.accepted === true;
+    const result = productService.reviewCopilotCandidate(
+      req.params.id,
+      req.params.candidateId,
+      accepted,
+      store.getWorkspaces(),
+      store.getSessions()
+    );
+    if (result && result.error) return res.status(result.status || 400).json({ error: result.error });
+    res.json(result);
+  });
+
+  app.post('/api/products/:id/copilot/decisions', (req, res) => {
+    const result = productService.addCopilotDecision(
+      req.params.id,
+      req.body || {},
+      store.getWorkspaces(),
+      store.getSessions()
+    );
+    if (result && result.error) return res.status(result.status || 400).json({ error: result.error });
+    res.status(201).json(result);
+  });
+
+  app.put('/api/products/:id/copilot/decisions/:decisionId', (req, res) => {
+    const result = productService.updateCopilotDecision(
+      req.params.id,
+      req.params.decisionId,
+      req.body || {},
+      store.getWorkspaces(),
+      store.getSessions()
+    );
+    if (result && result.error) return res.status(result.status || 400).json({ error: result.error });
+    res.json(result);
+  });
+
   app.get('/api/products/:id/stages', (req, res) => {
     const product = productService.getProductById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Not found' });

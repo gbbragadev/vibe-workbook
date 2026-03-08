@@ -64,7 +64,8 @@ function makeProductService(dir, opts = {}) {
     registryFile,
     handoffsFile,
     knowledgePackService,
-    runCoordinatorService
+    runCoordinatorService,
+    projectCopilotService: opts.projectCopilotService
   });
 }
 
@@ -180,6 +181,44 @@ test('product service recognizes discovery briefs as the brief artifact', () => 
   assert.ok(briefArtifact);
   assert.equal(briefArtifact.exists, true);
   assert.match(briefArtifact.path, /docs[\\/]+discovery$/);
+});
+
+test('product detail includes a copilot snapshot with candidate artifacts and recommendation', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'zapcam');
+  fs.mkdirSync(path.join(repoDir, 'docs', 'discovery'), { recursive: true });
+  fs.mkdirSync(path.join(repoDir, '.platform'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'docs', 'discovery', '2026-03-07-zapcam-discovery-brief.md'), '# discovery brief');
+  fs.writeFileSync(path.join(repoDir, '.platform', 'product.json'), JSON.stringify({ name: 'Zapcam' }, null, 2));
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'zapcam',
+        name: 'Zapcam',
+        slug: 'zapcam',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'Product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-zap', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, { registryFile });
+  const detail = service.getProductDetail('zapcam', [{ id: 'ws-zap', name: 'Zapcam Workspace' }], []);
+
+  assert.ok(detail.copilot);
+  assert.match(detail.copilot.summary, /asset|evidence|testing/i);
+  assert.ok(detail.copilot.candidate_artifacts.some((item) => /docs\/discovery\/2026-03-07-zapcam-discovery-brief\.md/i.test(item.relative_path)));
+  assert.equal(detail.copilot.recommended_next_move.action_type, 'review-artifact-candidates');
 });
 
 test('product service enriches next actions with knowledge preset metadata when pack is active', () => {
