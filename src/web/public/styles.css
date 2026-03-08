@@ -727,6 +727,30 @@ body {
   gap: 12px;
 }
 
+.copilot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.copilot-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+}
+
+.copilot-row-actions {
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
 .pipeline-list,
 .artifact-list,
 .next-actions-list,
@@ -1139,8 +1163,15 @@ body {
 
   .run-status-row,
   .run-session-row,
-  .action-row {
+  .action-row,
+  .copilot-row {
     flex-direction: column;
+  }
+
+  .copilot-row-actions {
+    width: 100%;
+    min-width: 0;
+    align-items: flex-start;
   }
 
   #main-layout {

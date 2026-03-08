@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { getKnowledgePackService } = require('./knowledge-pack-service');
 const { getRunCoordinatorService, buildExpectedOutputs, classifyOutputCategory } = require('./run-coordinator-service');
 const { getExecutionOrchestratorService } = require('./execution-orchestrator-service');
+const { getProjectCopilotService } = require('./project-copilot-service');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const REGISTRY_FILE = path.join(ROOT_DIR, 'products', 'registry', 'products.json');
@@ -863,6 +864,7 @@ class ProductService {
     this.knowledgePackService = opts.knowledgePackService || getKnowledgePackService();
     this.runCoordinatorService = opts.runCoordinatorService || getRunCoordinatorService();
     this.orchestratorService = opts.orchestratorService || getExecutionOrchestratorService();
+    this.projectCopilotService = opts.projectCopilotService || getProjectCopilotService();
   }
 
   getRegistry() {
@@ -1206,6 +1208,13 @@ class ProductService {
     const artifacts = this.getArtifacts(productId) || [];
     const handoffs = this.getHandoffs(productId);
     const knowledge = this.knowledgePackService.buildProductKnowledge(product, snapshot.pipeline, snapshot.current_stage_id);
+    const copilot = this.projectCopilotService.buildSnapshot(product, {
+      ...snapshot,
+      artifacts,
+      handoffs,
+      current_stage_knowledge: knowledge.current_stage_recommendations || [],
+      knowledge_stage_recommendations: knowledge.stage_recommendations || []
+    });
     return {
       ...snapshot,
       artifacts,
@@ -1214,8 +1223,35 @@ class ProductService {
       knowledge_stage_recommendations: knowledge.stage_recommendations,
       current_stage_knowledge: knowledge.current_stage_recommendations,
       runs: snapshot.recent_runs || [],
-      current_run: snapshot.current_run || null
+      current_run: snapshot.current_run || null,
+      copilot
     };
+  }
+
+  reviewCopilotCandidate(productId, candidateId, accepted, workspaces, sessions) {
+    const product = this.getProductById(productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+    this.projectCopilotService.reviewCandidate(productId, candidateId, accepted);
+    return this.getProductDetail(productId, workspaces, sessions);
+  }
+
+  addCopilotDecision(productId, payload, workspaces, sessions) {
+    const product = this.getProductById(productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+    try {
+      this.projectCopilotService.addDecision(productId, payload);
+    } catch (e) {
+      return { error: e.message, status: 400 };
+    }
+    return this.getProductDetail(productId, workspaces, sessions);
+  }
+
+  updateCopilotDecision(productId, decisionId, payload, workspaces, sessions) {
+    const product = this.getProductById(productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+    const updated = this.projectCopilotService.updateDecision(productId, decisionId, payload);
+    if (!updated) return { error: 'Decision not found', status: 404 };
+    return this.getProductDetail(productId, workspaces, sessions);
   }
 
   getPipeline(productId, workspaces, sessions) {

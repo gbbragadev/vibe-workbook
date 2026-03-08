@@ -511,6 +511,83 @@
       '</div></section>';
   }
 
+  function formatConfidence(value) {
+    var num = Number(value || 0);
+    if (!isFinite(num) || num <= 0) return 'low';
+    if (num >= 0.85) return 'high';
+    if (num >= 0.7) return 'medium';
+    return 'low';
+  }
+
+  function buildCopilotStateChip(state) {
+    var normalized = String(state || '').toLowerCase();
+    var chipClass = normalized === 'accepted' ? 'ok' : normalized === 'candidate' ? 'warn' : normalized === 'blocked' ? '' : 'subtle';
+    return '<span class="chip ' + chipClass + '">' + esc(normalized || 'unknown') + '</span>';
+  }
+
+  function buildCopilotPanel(detail) {
+    var copilot = detail.copilot;
+    if (!copilot) return '';
+    var blockers = ((copilot.current_state || {}).blockers || []).slice(0, 3);
+    var createdAssets = (copilot.created_assets || []).slice(0, 6);
+    var candidates = (copilot.candidate_artifacts || []).slice(0, 6);
+    var decisions = (copilot.decision_log || []).slice(0, 6);
+    var recommendation = copilot.recommended_next_move || null;
+    var delivery = copilot.delivery_readiness || { blocking_reasons: [] };
+    var state = copilot.current_state || {};
+
+    var blockersHtml = blockers.length
+      ? '<div class="chip-row" style="margin-top:10px">' + blockers.map(function(item) {
+          return '<span class="chip ' + (item.state === 'missing' || item.state === 'blocked' ? 'warn' : 'subtle') + '">' + esc(item.label) + '</span>';
+        }).join('') + '</div>'
+      : '<div class="artifact-row-meta" style="margin-top:10px">No critical blockers surfaced by the copilot.</div>';
+
+    var createdHtml = createdAssets.length
+      ? '<div class="copilot-list">' + createdAssets.map(function(item) {
+          return '<div class="copilot-row"><div><strong>' + esc(item.label || item.relative_path || item.path) + '</strong><div class="artifact-row-meta mono" style="margin-top:6px">' + esc(item.relative_path || item.path || '') + '</div></div><div class="chip-row">' + buildCopilotStateChip(item.status) + (item.stage ? '<span class="chip subtle">' + esc(item.stage) + '</span>' : '') + '</div></div>';
+        }).join('') + '</div>'
+      : '<p class="empty-subtext">No concrete created assets registered yet.</p>';
+
+    var candidatesHtml = candidates.length
+      ? '<div class="copilot-list">' + candidates.map(function(item) {
+          var actionButtons = item.accepted === null
+            ? '<button class="btn btn-sm btn-primary" data-copilot-action="accept-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Accept</button><button class="btn btn-sm" data-copilot-action="reject-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Reject</button>'
+            : '<button class="btn btn-sm" data-copilot-action="review-candidate" data-candidate-id="' + esc(item.candidate_id) + '">Change</button>';
+          return '<div class="copilot-row"><div><strong>' + esc(item.kind_guess || item.relative_path) + '</strong><div class="artifact-row-meta mono" style="margin-top:6px">' + esc(item.relative_path || item.path || '') + '</div><div class="artifact-row-meta" style="margin-top:6px">' + esc(item.reason || '') + '</div></div><div class="copilot-row-actions"><div class="chip-row">' + buildCopilotStateChip(item.state) + (item.mapped_stage ? '<span class="chip subtle">' + esc(item.mapped_stage) + '</span>' : '') + '<span class="chip subtle">' + esc(formatConfidence(item.confidence)) + ' confidence</span></div><div class="chip-row" style="margin-top:8px">' + actionButtons + '</div></div></div>';
+        }).join('') + '</div>'
+      : '<p class="empty-subtext">No artifact candidates need review right now.</p>';
+
+    var decisionsHtml = decisions.length
+      ? '<div class="copilot-list">' + decisions.map(function(item) {
+          return '<div class="copilot-row"><div><strong>' + esc(item.title || 'Untitled decision') + '</strong><div class="artifact-row-meta" style="margin-top:6px">' + esc(item.note || 'No extra note recorded.') + '</div><div class="artifact-row-meta" style="margin-top:6px">' + esc(item.linked_stage || 'no linked stage') + (item.linked_artifacts && item.linked_artifacts.length ? ' | ' + esc(item.linked_artifacts.join(', ')) : '') + '</div></div><div class="copilot-row-actions"><div class="chip-row">' + buildCopilotStateChip(item.status) + '</div><div class="chip-row" style="margin-top:8px"><button class="btn btn-sm" data-copilot-action="' + (item.status === 'resolved' ? 'reopen-decision' : 'resolve-decision') + '" data-decision-id="' + esc(item.decision_id) + '">' + (item.status === 'resolved' ? 'Reopen' : 'Resolve') + '</button></div></div></div>';
+        }).join('') + '</div>'
+      : '<p class="empty-subtext">No decision memory recorded yet.</p>';
+
+    var recommendationHtml = recommendation
+      ? '<div class="summary-callout"><div class="product-row"><strong>' + esc(recommendation.action_type || 'next-move') + '</strong><span class="artifact-row-meta">' + esc(formatConfidence(recommendation.confidence)) + ' confidence</span></div><p style="margin-top:8px">' + esc(recommendation.reason || '') + '</p><div class="chip-row" style="margin-top:10px"><span class="chip subtle">' + esc(recommendation.execution_mode_hint || 'plan-mode') + '</span>' + (recommendation.stage_hint ? '<span class="chip subtle">' + esc(recommendation.stage_hint) + '</span>' : '') + (recommendation.skills_hint ? '<span class="chip subtle">' + esc(recommendation.skills_hint) + '</span>' : '') + '</div></div>'
+      : '<p class="empty-subtext">No recommendation available yet.</p>';
+
+    var readinessHtml = '<div class="chip-row" style="margin-top:10px">' +
+      '<span class="chip ' + (delivery.ready_for_test ? 'ok' : 'warn') + '">test: ' + esc(delivery.ready_for_test ? 'ready' : 'not ready') + '</span>' +
+      '<span class="chip ' + (delivery.ready_for_test_deploy ? 'ok' : 'warn') + '">test deploy: ' + esc(delivery.ready_for_test_deploy ? 'ready' : 'not ready') + '</span>' +
+      '<span class="chip ' + (delivery.ready_for_production ? 'ok' : 'warn') + '">production: ' + esc(delivery.ready_for_production ? 'ready' : 'not ready') + '</span>' +
+      '</div>' +
+      ((delivery.blocking_reasons || []).length ? '<div class="chip-row" style="margin-top:10px">' + delivery.blocking_reasons.slice(0, 3).map(function(item) {
+        return '<span class="chip warn">' + esc(item) + '</span>';
+      }).join('') + '</div>' : '');
+
+    return '<section class="detail-panel"><div class="panel-header"><h3>Project Copilot</h3><span class="artifact-row-meta">semantic project guidance</span></div><div class="panel-body">' +
+      '<div class="summary-callout"><strong>Project State</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + esc(copilot.summary || state.summary || 'No copilot summary available.') + '</p><div class="meta-list" style="margin-top:10px">' +
+      metaItem('Created Assets', String(state.created_assets_total || createdAssets.length || 0)) +
+      metaItem('Candidates', String(state.candidate_artifacts_total || candidates.length || 0)) +
+      metaItem('Open Decisions', String(state.open_decisions_total || 0)) +
+      '</div>' + blockersHtml + '</div>' +
+      '<div class="detail-grid"><section class="run-card"><div class="product-row"><span class="meta-item-label">Created / Candidate Artifacts</span><div class="chip-row"><button class="btn btn-sm" data-copilot-action="refresh">Refresh</button></div></div><div style="margin-top:10px">' + createdHtml + '</div><div style="margin-top:12px"><div class="meta-item-label">Artifact candidates</div>' + candidatesHtml + '</div></section>' +
+      '<section class="run-card"><div class="product-row"><span class="meta-item-label">Decisions & Open Issues</span><div class="chip-row"><button class="btn btn-sm btn-primary" data-copilot-action="add-decision">Add decision</button></div></div><div style="margin-top:10px">' + decisionsHtml + '</div></section></div>' +
+      '<div class="detail-grid" style="margin-top:12px"><section class="run-card"><span class="meta-item-label">Recommended Next Move</span><div style="margin-top:10px">' + recommendationHtml + '</div></section><section class="run-card"><span class="meta-item-label">Delivery Readiness</span><div style="margin-top:10px">' + readinessHtml + '</div></section></div>' +
+      '</div></section>';
+  }
+
   function buildOperateLitePanel(detail) {
     var op = detail.operate_lite;
     if (!op) return '';
@@ -541,6 +618,7 @@
       '<section class="detail-panel"><div class="panel-header"><h3>Operational Summary</h3><span class="status-pill ' + esc((detail.workspace || {}).path_status || 'unknown') + '">' + esc((detail.workspace || {}).path_status || 'unknown') + '</span></div><div class="panel-body"><div class="meta-list">' +
       metaItem('Owner', detail.owner) + metaItem('Status', detail.status) + metaItem('Runtime Workspace', ((detail.workspace || {}).linked_workspace_name || (detail.workspace || {}).runtime_workspace_id || 'none')) + metaItem('Repo', ((detail.repo || {}).local_path || 'unknown')) + metaItem('Knowledge Packs', String(((detail.knowledge_packs || []).length))) + metaItem('Current Stage', detail.current_stage_id || detail.computed_stage_signal || 'idea') + metaItem('Tracked Runs', String(((detail.runs || []).length))) + metaItem('Handoffs', String(((detail.handoffs || []).length))) +
       '</div>' + (latestHandoff ? '<div class="summary-callout"><span class="meta-item-label">Latest completion</span>' + buildHandoffSummaryInline(latestHandoff) + '</div>' : '') + '</div></section>' +
+      buildCopilotPanel(detail) +
       '<section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + buildCurrentRunPanel(detail, currentRun) + '</div></section>' +
       buildReadinessPanel(detail) +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Pipeline</h3><span class="artifact-row-meta">' + detail.pipeline.length + ' stages</span></div><div class="panel-body"><div class="pipeline-list">' + detail.pipeline.map(step => buildStepCard(step)).join('') + '</div></div></section>' +
@@ -683,6 +761,74 @@
     root.querySelectorAll('[data-session-action="restart"]').forEach(el => el.addEventListener('click', () => restartSession(el.dataset.sessionId)));
     root.querySelectorAll('[data-session-action="stop"]').forEach(el => el.addEventListener('click', () => stopSession(el.dataset.sessionId)));
     root.querySelectorAll('[data-session-action="delete"]').forEach(el => el.addEventListener('click', () => deleteSession(el.dataset.sessionId)));
+    root.querySelectorAll('[data-copilot-action="refresh"]').forEach(el => el.addEventListener('click', () => refreshCopilot(detail.product_id)));
+    root.querySelectorAll('[data-copilot-action="accept-candidate"]').forEach(el => el.addEventListener('click', () => reviewCopilotCandidate(detail.product_id, el.dataset.candidateId, true)));
+    root.querySelectorAll('[data-copilot-action="reject-candidate"]').forEach(el => el.addEventListener('click', () => reviewCopilotCandidate(detail.product_id, el.dataset.candidateId, false)));
+    root.querySelectorAll('[data-copilot-action="review-candidate"]').forEach(el => el.addEventListener('click', () => openCandidateReviewDialog(detail.product_id, el.dataset.candidateId)));
+    root.querySelectorAll('[data-copilot-action="add-decision"]').forEach(el => el.addEventListener('click', () => openCopilotDecisionDialog(detail)));
+    root.querySelectorAll('[data-copilot-action="resolve-decision"]').forEach(el => el.addEventListener('click', () => updateCopilotDecisionStatus(detail.product_id, el.dataset.decisionId, 'resolved')));
+    root.querySelectorAll('[data-copilot-action="reopen-decision"]').forEach(el => el.addEventListener('click', () => updateCopilotDecisionStatus(detail.product_id, el.dataset.decisionId, 'open')));
+  }
+
+  async function refreshCopilot(productId) {
+    await loadProducts(true);
+    await loadProductDetail(productId, true);
+    renderCurrentView();
+  }
+
+  async function reviewCopilotCandidate(productId, candidateId, accepted) {
+    const detail = await api('/products/' + encodeURIComponent(productId) + '/copilot/candidates/' + encodeURIComponent(candidateId) + '/review', {
+      method: 'POST',
+      body: JSON.stringify({ accepted: accepted })
+    });
+    productDetails[productId] = detail;
+    await loadProducts(true);
+    renderCurrentView();
+  }
+
+  function openCandidateReviewDialog(productId, candidateId) {
+    showDialog('Review Artifact Candidate', '<p style="font-size:13px">Choose whether this candidate should be treated as accepted evidence for project memory.</p>', [
+      { label: 'Cancel', onClick: function() {} },
+      { label: 'Reject', onClick: function() { reviewCopilotCandidate(productId, candidateId, false); } },
+      { label: 'Accept', primary: true, onClick: function() { reviewCopilotCandidate(productId, candidateId, true); } }
+    ]);
+  }
+
+  function openCopilotDecisionDialog(detail) {
+    var currentStage = detail.current_stage_id || detail.computed_stage_signal || '';
+    var artifactOptions = (detail.artifacts || []).map(function(item) {
+      return '<option value="' + esc(item.id) + '">' + esc(item.label) + '</option>';
+    }).join('');
+    showDialog('Add Project Decision', '<label>Decision Title</label><input type="text" id="dlg-copilot-decision-title" placeholder="Example: use discovery brief as the working brief"><label>Linked Stage</label><input type="text" id="dlg-copilot-decision-stage" value="' + esc(currentStage) + '"><label>Linked Artifact (optional)</label><select id="dlg-copilot-decision-artifact"><option value="">None</option>' + artifactOptions + '</select><label>Note</label><textarea id="dlg-copilot-decision-note" placeholder="Why this decision matters and what it unblocks."></textarea>', [
+      { label: 'Cancel', onClick: function() {} },
+      { label: 'Save Decision', primary: true, onClick: async function() {
+        var title = document.getElementById('dlg-copilot-decision-title').value.trim();
+        if (!title) return;
+        var linkedArtifact = document.getElementById('dlg-copilot-decision-artifact').value;
+        var nextDetail = await api('/products/' + encodeURIComponent(detail.product_id) + '/copilot/decisions', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: title,
+            linked_stage: document.getElementById('dlg-copilot-decision-stage').value.trim(),
+            linked_artifacts: linkedArtifact ? [linkedArtifact] : [],
+            note: document.getElementById('dlg-copilot-decision-note').value.trim()
+          })
+        });
+        productDetails[detail.product_id] = nextDetail;
+        await loadProducts(true);
+        renderCurrentView();
+      } }
+    ]);
+  }
+
+  async function updateCopilotDecisionStatus(productId, decisionId, status) {
+    var detail = await api('/products/' + encodeURIComponent(productId) + '/copilot/decisions/' + encodeURIComponent(decisionId), {
+      method: 'PUT',
+      body: JSON.stringify({ status: status })
+    });
+    productDetails[productId] = detail;
+    await loadProducts(true);
+    renderCurrentView();
   }
 
   function openSessionInTerminals(sessionId, productId) {
