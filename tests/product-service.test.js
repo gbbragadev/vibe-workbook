@@ -221,6 +221,93 @@ test('product detail includes a copilot snapshot with candidate artifacts and re
   assert.equal(detail.copilot.recommended_next_move.action_type, 'review-artifact-candidates');
 });
 
+test('getProducts adds a compatible copilot_lite snapshot with persisted fallback values', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'zapcam');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'zapcam',
+        name: 'Zapcam',
+        slug: 'zapcam',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'Product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-zap', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const serviceWithState = makeProductService(dir, {
+    registryFile,
+    projectCopilotService: {
+      getProductState(productId) {
+        assert.equal(productId, 'zapcam');
+        return {
+          decisions: [],
+          candidate_reviews: {},
+          last_summary: 'Persisted product summary',
+          last_recommendation: {
+            action_type: 'advance-stage',
+            reason: 'Stage is ready to continue.'
+          },
+          updated_at: 123456789
+        };
+      },
+      buildSnapshot() {
+        throw new Error('buildSnapshot should not be called by getProducts');
+      }
+    }
+  });
+
+  const snapshot = serviceWithState.getProducts([{ id: 'ws-zap', name: 'Zapcam Workspace' }], [])[0];
+  assert.equal(snapshot.product_id, 'zapcam');
+  assert.equal(snapshot.workspace.linked_workspace_name, 'Zapcam Workspace');
+  assert.ok(Array.isArray(snapshot.pipeline));
+  assert.deepEqual(snapshot.copilot_lite, {
+    summary: 'Persisted product summary',
+    recommended_next_move: {
+      action_type: 'advance-stage',
+      reason: 'Stage is ready to continue.'
+    },
+    updated_at: 123456789
+  });
+
+  const serviceWithoutState = makeProductService(makeTempDir(), {
+    registryFile,
+    projectCopilotService: {
+      getProductState() {
+        return {
+          decisions: [],
+          candidate_reviews: {},
+          last_summary: '',
+          last_recommendation: null,
+          updated_at: 0
+        };
+      },
+      buildSnapshot() {
+        throw new Error('buildSnapshot should not be called by getProducts');
+      }
+    }
+  });
+
+  const fallback = serviceWithoutState.getProducts([], [])[0];
+  assert.deepEqual(fallback.copilot_lite, {
+    summary: '',
+    recommended_next_move: null,
+    updated_at: 0
+  });
+});
+
 test('product service enriches next actions with knowledge preset metadata when pack is active', () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');

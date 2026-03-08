@@ -1337,6 +1337,7 @@ class ProductService {
     const releasePacket = deriveReleasePacket(readiness, currentStageId, artifacts, handoffs);
     const operateLite = deriveOperateLite(artifacts, pipeline, readiness, handoffs);
     const nextActions = deriveNextActions(product, artifacts, pipeline, relatedSessions, currentRun, knowledge.stage_recommendations || [], readiness);
+    const copilotState = this.projectCopilotService.getProductState(product.product_id);
 
     // Milestone 3A: Derive transition gate and evidence report for current run
     let transitionGateStatus = 'no-contract';
@@ -1389,6 +1390,11 @@ class ProductService {
       readiness,
       release_packet: releasePacket,
       operate_lite: operateLite,
+      copilot_lite: {
+        summary: copilotState.last_summary || '',
+        recommended_next_move: copilotState.last_recommendation || null,
+        updated_at: copilotState.updated_at || 0
+      },
       next_actions: nextActions,
       related_sessions: relatedSessions.slice(0, 5),
       pipeline,

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-03-07T15:45:19.177Z",
+  "generated_at": "2026-03-08T14:56:36.341Z",
   "products": [
     {
       "product_id": "zapcam",
@@ -120,6 +120,42 @@
       "timestamps": {
         "created_at": "2026-03-07T00:00:00Z",
         "updated_at": "2026-03-07T00:00:00Z"
+      }
+    },
+    {
+      "product_id": "e2e-test-v5",
+      "name": "E2E Test Product",
+      "slug": "e2e-test-v5",
+      "status": "active",
+      "stage": "brief",
+      "owner": "guibr",
+      "category": "product",
+      "summary": "",
+      "repo": {
+        "mode": "local",
+        "local_path": "C:\\Projects\\e2etestv5",
+        "remote_url": "",
+        "default_branch": "main"
+      },
+      "workspace": {
+        "runtime_workspace_id": "",
+        "current_working_dir": "",
+        "path_status": "unknown"
+      },
+      "platform": {
+        "template": "standard-product-v1",
+        "manifest_path": ".platform/product.json",
+        "runbook_path": "docs/runbook.md",
+        "spec_path": "docs/spec.md"
+      },
+      "governance": {
+        "source_of_truth": "registry",
+        "decision_status": "created-via-ui",
+        "notes": []
+      },
+      "timestamps": {
+        "created_at": "2026-03-08T14:56:36.341Z",
+        "updated_at": "2026-03-08T14:56:36.341Z"
       }
     }
   ]

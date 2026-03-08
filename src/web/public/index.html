@@ -49,10 +49,23 @@
     <div id="main-layout">
       <aside id="sidebar">
         <div class="sidebar-header">
-          <h2>Runtime Workspaces</h2>
-          <button class="btn btn-sm btn-primary" id="btn-new-workspace" title="New runtime workspace">+ Workspace</button>
+          <div>
+            <h2>Products</h2>
+            <p class="sidebar-subtitle">Current stage, next move and blockers first.</p>
+          </div>
+          <button class="btn btn-sm btn-primary" id="btn-new-product-sidebar" title="Create product">+ Product</button>
         </div>
-        <div id="workspace-list"></div>
+        <div id="product-sidebar-list"></div>
+        <details id="workspace-sidebar-section" class="sidebar-section" open>
+          <summary class="sidebar-section-summary">
+            <span>Runtime Workspaces</span>
+            <span class="sidebar-section-meta" id="workspace-sidebar-meta"></span>
+          </summary>
+          <div class="sidebar-section-actions">
+            <button class="btn btn-sm" id="btn-new-workspace" title="New runtime workspace">+ Workspace</button>
+          </div>
+          <div id="workspace-list"></div>
+        </details>
         <div class="sidebar-footer">
           <input type="text" id="search-input" placeholder="Search sessions...">
         </div>

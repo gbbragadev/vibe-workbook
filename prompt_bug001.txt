@@ -1,0 +1,20 @@
+Corrija o seguinte bug:
+
+- nome curto: BUG-001 (Readiness Header Inconsistency)
+- severidade: 🔴 Critical
+- passos para reproduzir:
+  1. Navigate to main UI and click on a product that has all required artifacts (e.g., E2E Test Product with 7/7 artifacts).
+  2. Look at the "Release Readiness" section header.
+- comportamento esperado: "Ready for release" or "All signals met" header because all signals are met and checkmarks are green.
+- comportamento atual: "Needs more evidence" header pill is shown, contradicting the checkmarks below.
+- área provável: Frontend readiness derivation logic (e.g. `app.js` or `product-service.js`).
+- restrições:
+  - corrigir apenas este bug
+  - preservar arquitetura existente
+  - não fazer refactor amplo
+  - não mexer fora do necessário
+  - rodar checks viáveis (e.g. `node --test`)
+  - commitar e dar git push na branch atual
+  - não abrir PR
+
+DICA: Na tentativa anterior, a adição de `cache: 'no-store'` na função `api()` do `app.js` quebrou a sintaxe do arquivo. Adicione a correção de cache no fetch de forma limpa e válida. Verifique se a lógica do `deriveReadinessDisplay` no frontend bate com o backend.

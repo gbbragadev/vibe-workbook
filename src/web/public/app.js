@@ -227,9 +227,42 @@
   // ============ WORKSPACE SIDEBAR ============
   // All dynamic content is sanitized through esc() which uses textContent-based escaping
   function renderWorkspaceList() {
+    const productContainer = document.getElementById('product-sidebar-list');
     const container = document.getElementById('workspace-list');
+    const workspaceMeta = document.getElementById('workspace-sidebar-meta');
+    if (workspaceMeta) workspaceMeta.textContent = workspaces.length ? (workspaces.length + ' tracked') : 'none';
+
+    if (productContainer) {
+      if (!products.length) {
+        productContainer.innerHTML = '<div class="sidebar-empty-state"><strong>No products yet</strong><span>Create the first product to anchor stage, next action and blockers.</span></div>';
+      } else {
+        productContainer.innerHTML = products.map(product => {
+          const isActive = product.product_id === activeProductId;
+          const stageLabel = resolveOverviewStageLabel(product);
+          const readiness = resolveReadinessTone(product.readiness);
+          const summaryText = resolveProductSummaryText(product, true);
+          const blockers = resolveTopBlockers(product, 2);
+          const nextMove = resolveOverviewPrimaryAction(product);
+          const blockerText = blockers.length ? blockers.join(' | ') : 'No blockers flagged on the main path.';
+          return '<button class="product-sidebar-item ' + (isActive ? 'active' : '') + '" data-product-id="' + esc(product.product_id) + '">' +
+            '<div class="product-sidebar-item-top"><strong>' + esc(product.name) + '</strong><span class="status-pill ' + esc(readiness.className) + '">' + esc(readiness.label) + '</span></div>' +
+            '<div class="product-sidebar-item-meta">Stage: ' + esc(stageLabel) + '</div>' +
+            '<div class="product-sidebar-item-summary">' + esc(summaryText) + '</div>' +
+            '<div class="product-sidebar-item-footer"><span>' + esc(nextMove ? nextMove.label : 'Open product') + '</span><span>' + esc(blockerText) + '</span></div>' +
+            '</button>';
+        }).join('');
+        productContainer.querySelectorAll('.product-sidebar-item').forEach(el => {
+          el.addEventListener('click', () => {
+            hideContextMenu();
+            switchView('products');
+            setActiveProduct(el.dataset.productId);
+          });
+        });
+      }
+    }
+
     if (!workspaces.length) {
-      container.innerHTML = '<div style="padding: 20px 14px; color: var(--text-muted); font-size: 13px; text-align: center;">No runtime workspaces yet<br><small>Click &quot;+ Workspace&quot; to create one</small></div>';
+      container.innerHTML = '<div class="sidebar-empty-state compact"><strong>No runtime workspaces</strong><span>Use + Workspace when the product needs an execution environment.</span></div>';
       return;
     }
 
@@ -430,9 +463,57 @@
     const product = products.find(p => p.product_id === productId);
     if (product && product.workspace && product.workspace.runtime_workspace_id) {
       setActiveWorkspace(product.workspace.runtime_workspace_id);
-      renderWorkspaceList();
     }
+    renderWorkspaceList();
     renderCurrentView();
+  }
+
+  function resolveReadinessTone(readiness) {
+    const status = (readiness && readiness.status) || '';
+    if (status === 'ready-for-release-candidate') return { className: 'done', label: 'Ready for RC' };
+    if (status === 'needs-evidence') return { className: 'ready', label: 'Needs evidence' };
+    if (status === 'not-ready') return { className: 'blocked', label: 'Not ready' };
+    return { className: 'subtle', label: 'Not assessed' };
+  }
+
+  function resolveProductSummaryText(product, compact) {
+    const base = ((product.copilot_lite || {}).summary || product.summary || '').trim();
+    if (!base) {
+      return compact
+        ? 'No short product state yet. Open the product to capture the current stage and next move.'
+        : 'No short product state yet. Open the product cockpit to capture the current stage, blockers and next move.';
+    }
+    return base;
+  }
+
+  function resolveWorkspaceWarning(product) {
+    const status = ((product.workspace || {}).path_status || '').toLowerCase();
+    if (!status || status === 'valid') return '';
+    if (status === 'mismatched') return 'Runtime workspace path is mismatched.';
+    if (status === 'missing') return 'Runtime workspace path is missing.';
+    return 'Runtime workspace needs attention.';
+  }
+
+  function resolveTopBlockers(source, limit) {
+    const maxItems = limit || 3;
+    const blockers = [];
+    const readinessGaps = (((source || {}).readiness || {}).gaps || []).map(item => item && item.label).filter(Boolean);
+    const copilotBlockers = ((((source || {}).copilot || {}).current_state || {}).blockers || []).map(item => item && item.label).filter(Boolean);
+    const workspaceWarning = resolveWorkspaceWarning(source);
+    for (const label of readinessGaps.concat(copilotBlockers)) {
+      if (label && !blockers.includes(label)) blockers.push(label);
+      if (blockers.length >= maxItems) break;
+    }
+    if (workspaceWarning && blockers.length < maxItems && !blockers.includes(workspaceWarning)) blockers.push(workspaceWarning);
+    return blockers.slice(0, maxItems);
+  }
+
+  function buildBlockerList(items, emptyText, className) {
+    const entries = (items || []).filter(Boolean);
+    if (!entries.length) {
+      return '<div class="empty-inline-state">' + esc(emptyText) + '</div>';
+    }
+    return '<div class="' + esc(className || 'blocker-list') + '">' + entries.map(item => '<div class="blocker-row">' + esc(item) + '</div>').join('') + '</div>';
   }
 
   function resolveOverviewPrimaryAction(product) {
@@ -488,6 +569,19 @@
     return '<button class="btn btn-cta" data-product-card-action="open-detail" data-product-id="' + esc(product.product_id) + '">' + esc(action.label) + '</button>';
   }
 
+  function resolveOverviewStageLabel(product) {
+    return product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea';
+  }
+
+  function resolveOverviewStatus(product) {
+    const pipeline = Array.isArray(product.pipeline) ? product.pipeline : [];
+    if (pipeline.some(step => step && step.status === 'in-progress')) return 'in-progress';
+    if (pipeline.some(step => step && step.status === 'ready-for-handoff')) return 'ready-for-handoff';
+    if (pipeline.length && pipeline.every(step => step && step.status === 'done')) return 'done';
+    if (pipeline.some(step => step && step.status === 'ready')) return 'ready';
+    return 'not-started';
+  }
+
   async function handleOverviewPrimaryAction(actionEl) {
     const productId = actionEl.dataset.productId;
     const actionType = actionEl.dataset.productCardAction;
@@ -513,38 +607,37 @@
     const detail = document.getElementById('product-detail');
 
     if (!products.length) {
-      summary.textContent = 'No products registered.';
-      overview.innerHTML = '<div class="empty-panel"><h3>No products</h3><p class="empty-subtext">Registry data is unavailable.</p></div>';
-      detail.innerHTML = '<div class="empty-panel"><h3>Product detail</h3><p class="empty-subtext">Select a product when the catalog is available.</p></div>';
+      summary.textContent = 'No products registered yet.';
+      overview.innerHTML = '<div class="empty-panel"><h3>Create the first product</h3><p class="empty-subtext">Use + Product to register the product, link its runtime workspace and make the guided stage flow visible.</p></div>';
+      detail.innerHTML = '<div class="empty-panel"><h3>Product cockpit</h3><p class="empty-subtext">The cockpit appears here after the first product is registered.</p></div>';
       return;
     }
 
     if (!activeProductId || !products.find(p => p.product_id === activeProductId)) activeProductId = products[0].product_id;
 
-    summary.textContent = products.length + ' registered products';
+    summary.textContent = products.length + ' tracked product' + (products.length === 1 ? '' : 's') + '. Select one to inspect stage, next action and blockers.';
     overview.innerHTML = products.map(product => {
-      const artifact = product.artifact_summary || { present: 0, total: 0 };
-      const nextAction = (product.next_actions || [])[0];
-      const knowledgeSummary = product.knowledge_summary || { active_packs: 0, active_pack_names: [] };
       const currentRun = resolveCurrentRun(product);
       const primaryAction = resolveOverviewPrimaryAction(product);
-      const productStatus = (product.pipeline || []).some(step => step.status === 'in-progress')
-        ? 'in-progress'
-        : ((product.pipeline || []).some(step => step.status === 'ready') ? 'ready' : 'not-started');
-      const stageLabel = currentRun ? (currentRun.stage_label || currentRun.stage_id || 'active run') : (product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea');
-      const readinessLabel = (product.readiness && product.readiness.status) ? String(product.readiness.status).replace(/-/g, ' ') : 'not assessed';
-      const workspaceWarning = (product.workspace || {}).path_status && (product.workspace || {}).path_status !== 'valid'
-        ? '<span class="chip warn">runtime workspace needs attention</span>'
-        : '';
+      const stageLabel = resolveOverviewStageLabel(product);
+      const readiness = resolveReadinessTone(product.readiness);
+      const summaryText = resolveProductSummaryText(product);
+      const blockers = resolveTopBlockers(product, 3);
+      const workspaceWarning = resolveWorkspaceWarning(product);
+      const nextMoveText = primaryAction ? primaryAction.description : 'Open the product cockpit to decide the next move.';
+      const currentRunLabel = currentRun
+        ? '<div class="product-card-runtime"><span class="meta-item-label">Current run</span><strong>' + esc(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') + '</strong><span class="artifact-row-meta">' + esc(currentRun.objective || 'Execution in progress.') + '</span></div>'
+        : '<div class="product-card-runtime idle"><span class="meta-item-label">Current run</span><strong>No active run</strong><span class="artifact-row-meta">Use the next action below to continue this product.</span></div>';
       return '<article class="product-card ' + (product.product_id === activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +
         '<div class="product-card-top"><div><div class="product-card-name">' + esc(product.name) + '</div>' +
-        '<div class="chip-row" style="margin-top:6px"><span class="chip">' + esc(product.category) + '</span><span class="chip subtle">stage: ' + esc(stageLabel) + '</span>' + workspaceWarning + '</div></div>' +
-        '<span class="status-pill ' + productStatus + '">' + stageStatusLabel(productStatus) + '</span></div>' +
-        '<div class="product-card-summary">' + esc(product.summary || 'No product summary available.') + '</div>' +
-        '<div class="product-card-stats"><div class="product-stat"><div class="product-stat-label">Artifacts</div><div class="product-stat-value">' + artifact.present + '/' + artifact.total + '</div></div><div class="product-stat"><div class="product-stat-label">Sessions</div><div class="product-stat-value">' + ((product.related_sessions || []).length) + '</div></div><div class="product-stat"><div class="product-stat-label">Readiness</div><div class="product-stat-value">' + esc(readinessLabel) + '</div></div><div class="product-stat"><div class="product-stat-label">Knowledge</div><div class="product-stat-value">' + esc(String(knowledgeSummary.active_packs || 0)) + '</div></div></div>' +
-        '<div class="chip-row knowledge-chip-row" style="margin-top:10px">' + buildKnowledgePackChips(product.active_knowledge_packs || [], true) + '</div>' +
-        (currentRun ? '<div class="product-card-run"><span class="product-card-run-label">Current run</span><strong>' + esc(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') + '</strong><span class="artifact-row-meta">' + esc(currentRun.objective || 'Coordinated execution in progress.') + '</span></div>' : '') +
-        '<div class="product-card-footer"><div><div class="product-card-next-label">Recommended next move</div><div class="artifact-row-meta" style="margin-top:4px">' + esc(primaryAction ? primaryAction.description : (nextAction ? nextAction.label : 'Review the product detail to decide the next move.')) + '</div></div><div class="product-card-footer-actions">' + buildOverviewPrimaryActionButton(product, primaryAction) + '</div></div>' +
+        '<div class="product-card-stage">Stage: <strong>' + esc(stageLabel) + '</strong></div></div>' +
+        '<span class="status-pill ' + esc(readiness.className) + '">' + esc(readiness.label) + '</span></div>' +
+        '<div class="product-card-summary">' + esc(summaryText) + '</div>' +
+        currentRunLabel +
+        '<div class="product-card-focus"><div class="meta-item-label">Next action</div><strong>' + esc(primaryAction ? primaryAction.label : 'Open product') + '</strong><p class="artifact-row-meta">' + esc(nextMoveText) + '</p></div>' +
+        '<div class="product-card-focus"><div class="meta-item-label">Blockers</div>' + buildBlockerList(blockers, 'No blockers are flagged right now.', 'blocker-list compact') + '</div>' +
+        (workspaceWarning ? '<div class="product-card-warning">' + esc(workspaceWarning) + '</div>' : '') +
+        '<div class="product-card-footer"><div class="product-card-footer-actions">' + buildOverviewPrimaryActionButton(product, primaryAction) + '</div></div>' +
         '</article>';
     }).join('');
 
@@ -755,13 +848,16 @@
   function buildExecutiveSummaryPanel(detail, currentRun, latestHandoff) {
     var primaryAction = resolvePrimaryProductAction(detail);
     var copilot = detail.copilot || {};
-    var blockers = ((copilot.current_state || {}).blockers || []).slice(0, 3);
+    var blockers = resolveTopBlockers(detail, 3);
     var artifactSummary = detail.artifact_summary || { present: 0, total: 0 };
     var stageLabel = detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea';
     var readiness = detail.readiness || {};
+    var readinessTone = resolveReadinessTone(readiness);
+    var workspaceLabel = ((detail.workspace || {}).linked_workspace_name || (detail.workspace || {}).runtime_workspace_id || 'No runtime workspace linked');
+    var workspaceWarning = resolveWorkspaceWarning(detail);
     var technicalSummary = '<details class="inline-details"><summary>Technical context</summary><div class="inline-details-body"><div class="meta-list">' +
       metaItem('Owner', detail.owner) +
-      metaItem('Runtime Workspace', ((detail.workspace || {}).linked_workspace_name || (detail.workspace || {}).runtime_workspace_id || 'none')) +
+      metaItem('Runtime Workspace', workspaceLabel) +
       metaItem('Repo', ((detail.repo || {}).local_path || 'unknown')) +
       metaItem('Declared Stage', detail.declared_stage || 'unknown') +
       metaItem('Stage Signal', detail.computed_stage_signal || 'unknown') +
@@ -769,11 +865,7 @@
       metaItem('Handoffs', String(((detail.handoffs || []).length))) +
       metaItem('Latest Completion', latestHandoff ? formatDateTime(latestHandoff.created_at) : 'none') +
       '</div></div></details>';
-    var blockerHtml = blockers.length
-      ? '<div class="chip-row" style="margin-top:10px">' + blockers.map(function(item) {
-          return '<span class="chip warn">' + esc(item.label) + '</span>';
-        }).join('') + '</div>'
-      : '<div class="artifact-row-meta" style="margin-top:10px">No critical blockers surfaced right now.</div>';
+    var blockerHtml = buildBlockerList(blockers, 'No blockers surfaced right now.');
     var openSessionButton = currentRun && pickPrimaryRunSession(currentRun, detail)
       ? buildPrimaryActionButton({
           type: 'open-session',
@@ -782,7 +874,17 @@
         }, 'btn')
       : '';
 
-    return '<section class="detail-panel executive-panel"><div class="panel-header"><h3>Product State</h3><span class="artifact-row-meta">executive summary</span></div><div class="panel-body"><div class="executive-grid"><div><div class="chip-row"><span class="chip subtle">stage: ' + esc(stageLabel) + '</span><span class="chip ' + stageSignalClass(detail.computed_stage_signal) + '">signal: ' + esc(detail.computed_stage_signal || stageLabel) + '</span><span class="chip ' + (readiness.status === 'ready-for-release-candidate' ? 'ok' : readiness.status === 'needs-evidence' ? 'warn' : 'subtle') + '">' + esc(readiness.label || 'not assessed') + '</span></div><p class="executive-summary">' + esc(copilot.summary || detail.summary || 'Review the product state, evidence and next move.') + '</p><div class="meta-list executive-meta"><div><span class="meta-item-label">Artifacts</span><span class="mono">' + esc(String(artifactSummary.present || 0) + '/' + String(artifactSummary.total || 0)) + '</span></div><div><span class="meta-item-label">Current Run</span><span class="mono">' + esc(currentRun ? (currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') : 'none') + '</span></div><div><span class="meta-item-label">Open Blockers</span><span class="mono">' + esc(String(blockers.length)) + '</span></div><div><span class="meta-item-label">Ready for Test</span><span class="mono">' + esc(((copilot.delivery_readiness || {}).ready_for_test) ? 'yes' : 'no') + '</span></div></div>' + blockerHtml + technicalSummary + '</div><div class="executive-cta-card"><div class="run-kicker">Recommended next move</div><strong>' + esc(primaryAction ? primaryAction.label : 'Review product state') + '</strong><p class="artifact-row-meta" style="margin-top:8px">' + esc(primaryAction ? primaryAction.description : 'Use the product detail below to choose the next step.') + '</p><div class="product-detail-actions executive-actions">' + (primaryAction ? buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta') : '') + openSessionButton + '</div></div></div></div></section>';
+    return '<section class="detail-panel executive-panel"><div class="panel-header"><h3>Product State</h3><span class="artifact-row-meta">current stage and operating context</span></div><div class="panel-body"><div class="executive-grid"><div><div class="chip-row"><span class="chip subtle">stage: ' + esc(stageLabel) + '</span><span class="chip ' + stageSignalClass(detail.computed_stage_signal) + '">signal: ' + esc(detail.computed_stage_signal || stageLabel) + '</span><span class="status-pill ' + esc(readinessTone.className) + '">' + esc(readinessTone.label) + '</span></div><p class="executive-summary">' + esc(copilot.summary || detail.summary || 'Review the product state, evidence and next move.') + '</p><div class="meta-list executive-meta"><div><span class="meta-item-label">Artifacts</span><span class="mono">' + esc(String(artifactSummary.present || 0) + '/' + String(artifactSummary.total || 0)) + '</span></div><div><span class="meta-item-label">Current Run</span><span class="mono">' + esc(currentRun ? (currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') : 'No active run') + '</span></div><div><span class="meta-item-label">Runtime Workspace</span><span class="mono">' + esc(workspaceLabel) + '</span></div><div><span class="meta-item-label">Latest Completion</span><span class="mono">' + esc(latestHandoff ? formatDateTime(latestHandoff.created_at) : 'No stage completed yet') + '</span></div></div>' + (workspaceWarning ? '<div class="product-card-warning" style="margin-top:12px">' + esc(workspaceWarning) + '</div>' : '') + '<div style="margin-top:12px"><span class="meta-item-label">Current blockers</span>' + blockerHtml + '</div>' + technicalSummary + '</div><div class="executive-cta-card"><div class="run-kicker">Primary next move</div><strong>' + esc(primaryAction ? primaryAction.label : 'Review product state') + '</strong><p class="artifact-row-meta" style="margin-top:8px">' + esc(primaryAction ? primaryAction.description : 'Use the product detail below to choose the next step.') + '</p><div class="product-detail-actions executive-actions">' + (primaryAction ? buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta') : '') + openSessionButton + '</div></div></div></div></section>';
+  }
+
+  function buildBlockersPanel(detail) {
+    var blockers = resolveTopBlockers(detail, 5);
+    var workspaceWarning = resolveWorkspaceWarning(detail);
+    var lines = blockers.slice();
+    if (workspaceWarning && !lines.includes(workspaceWarning)) lines.push(workspaceWarning);
+    return '<section class="detail-panel"><div class="panel-header"><h3>Blockers</h3><span class="artifact-row-meta">' + (lines.length ? (lines.length + ' item(s)') : 'clear path') + '</span></div><div class="panel-body">' +
+      buildBlockerList(lines, 'No blockers are currently stopping the primary path.') +
+      '</div></section>';
   }
 
   function buildOperateLitePanel(detail) {
@@ -810,21 +912,32 @@
     const pipelineBody = '<div class="pipeline-list">' + detail.pipeline.map(step => buildStepCard(step)).join('') + '</div>';
     const knowledgeBody = buildKnowledgePackPanel(detail) + '<div style="margin-top:14px">' + buildStageKnowledgePanel(detail) + '</div>';
     const technicalBody = buildHandoffHistoryPanel(detail);
-    const sessionsBody = '<div class="session-list">' + ((detail.related_sessions || []).map(session => buildProductSessionRow(session)).join('') || '<p>No linked sessions yet.</p>') + '</div>';
-    return '<div class="product-detail-header"><div class="product-row"><div><h2>' + esc(detail.name) + '</h2><div class="product-subtitle">' + esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + esc(detail.category) + '</span><span class="chip subtle">stage: ' + esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
+    const sessionsBody = '<div class="session-list">' + ((detail.related_sessions || []).map(session => buildProductSessionRow(session)).join('') || '<div class="empty-inline-state">No linked sessions yet.</div>') + '</div>';
+    const nextActionsBody = (detail.next_actions || []).map(action => buildNextActionRow(action, detail)).join('') || '<div class="empty-inline-state">No next action is clearly recommended yet. Review blockers, stage evidence and workspace setup first.</div>';
+    const artifactsBody = detail.artifacts.length
+      ? '<div class="artifact-list checklist-list">' + detail.artifacts.map(artifact => buildArtifactRow(artifact)).join('') + '</div>'
+      : '<div class="empty-inline-state">No governed artifacts are tracked for this product yet.</div>';
+    const currentRunBody = buildCurrentRunPanel(detail, currentRun);
+    return '<div class="product-detail-header"><div class="product-row"><div><h2>' + esc(detail.name) + '</h2><div class="product-subtitle">' + esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + esc(detail.category) + '</span><span class="chip subtle">stage: ' + esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span></div></div><div class="product-detail-actions">' +
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
       '<button class="btn btn-sm" data-product-action="change-workspace">Change Runtime Workspace</button>' +
       '</div></div><div class="product-detail-scroll">' +
       buildExecutiveSummaryPanel(detail, currentRun, latestHandoff) +
-      buildCopilotPanel(detail) +
-      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => buildArtifactRow(artifact)).join('') + '</div></div></section>' +
-      buildReadinessPanel(detail) + '</div>' +
-      '<div class="detail-grid"><section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + buildCurrentRunPanel(detail, currentRun) + '</div></section>' +
-      '<section class="detail-panel"><div class="panel-header"><h3>Next Actions</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + ((detail.next_actions || []).map(action => buildNextActionRow(action, detail)).join('') || '<p>No next actions available.</p>') + '</div></div></section></div>' +
-      '<div class="detail-grid">' + buildCollapsiblePanel('Pipeline', detail.pipeline.length + ' stages', pipelineBody, false) +
-      '<section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta">collapsed by default</span></div><div class="panel-body"><div class="detail-grid"><div>' + buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section></div>' +
-      '<div class="detail-grid">' + buildCollapsiblePanel('Knowledge Packs & Guidance', ((detail.knowledge_packs || []).length) + ' active', knowledgeBody, false) +
+      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Next Action</h3><span class="artifact-row-meta">' + ((detail.next_actions || []).length) + ' suggested</span></div><div class="panel-body"><div class="next-actions-list">' + nextActionsBody + '</div></div></section>' +
+      buildBlockersPanel(detail) + '</div>' +
+      buildCollapsiblePanel('Pipeline', detail.pipeline.length + ' stage(s)', pipelineBody, true) +
+      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Artifact Checklist</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body">' + artifactsBody + '</div></section>' +
+      '<section class="detail-panel run-panel"><div class="panel-header"><h3>Current Run</h3><span class="artifact-row-meta">' + esc(currentRun ? (currentRun.status || 'active') : 'no active run') + '</span></div><div class="panel-body">' + currentRunBody + '</div></section></div>' +
+      '<div class="detail-grid">' + buildReadinessPanel(detail) +
+      buildCopilotPanel(detail) + '</div>' +
+      '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta">collapsed by default</span></div><div class="panel-body"><div class="detail-grid"><div>' + buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section>' +
       buildOperateLitePanel(detail) + '</div>' +
+      '<div class="detail-grid">' + buildCollapsiblePanel('Knowledge Packs & Guidance', ((detail.knowledge_packs || []).length) + ' active', knowledgeBody, false) +
+      '<section class="detail-panel"><div class="panel-header"><h3>Workspace Link</h3><span class="artifact-row-meta">' + esc(((detail.workspace || {}).runtime_workspace_id || 'not linked')) + '</span></div><div class="panel-body"><p>' + esc(((detail.workspace || {}).runtime_workspace_id)
+        ? (((detail.workspace || {}).linked_workspace_name || 'Runtime workspace linked') + '. Use Open Runtime Workspace to continue execution.')
+        : 'This product still has no runtime workspace linked. Link one before starting guided execution.') + '</p>' +
+      (resolveWorkspaceWarning(detail) ? '<div class="product-card-warning" style="margin-top:12px">' + esc(resolveWorkspaceWarning(detail)) + '</div>' : '') +
+      '</div></section></div>' +
       '</div></div>';
   }
 
@@ -2888,6 +3001,7 @@
     document.getElementById('btn-cost-dashboard').addEventListener('click', function() { switchView('costs'); });
     document.getElementById('btn-discover').addEventListener('click', function() { switchView('discover'); });
     document.getElementById('btn-new-product').addEventListener('click', function() { showProductWizard(); });
+    document.getElementById('btn-new-product-sidebar').addEventListener('click', function() { showProductWizard(); });
     document.getElementById('btn-new-workspace').addEventListener('click', newWorkspace);
     document.getElementById('btn-new-session').addEventListener('click', newSession);
     document.getElementById('btn-stop-all-sessions').addEventListener('click', stopAllWorkspaceSessions);
