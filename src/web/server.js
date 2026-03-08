@@ -255,16 +255,16 @@ function createServer() {
     res.json(productService.getStagePresets());
   });
 
-  app.post('/api/products/:id/stages/:stage/start', (req, res) => {
-    const result = productService.startStage(req.params.id, req.params.stage, req.body || {}, store);
+  app.post('/api/products/:id/stages/:stage/start', async (req, res) => {
+    const result = await productService.startStage(req.params.id, req.params.stage, req.body || {}, store);
     if (result.error) return res.status(result.status || 400).json({ error: result.error });
     res.status(201).json(result);
   });
 
-  app.post('/api/products/:id/next-actions/execute', (req, res) => {
+  app.post('/api/products/:id/next-actions/execute', async (req, res) => {
     const { action_id } = req.body || {};
     if (!action_id) return res.status(400).json({ error: 'action_id is required' });
-    const result = productService.executeNextAction(
+    const result = await productService.executeNextAction(
       req.params.id,
       action_id,
       req.body || {},
@@ -301,14 +301,14 @@ function createServer() {
     res.json(productService.getHandoffs(req.params.id));
   });
 
-  app.post('/api/products/:id/handoffs', (req, res) => {
+  app.post('/api/products/:id/handoffs', async (req, res) => {
     const product = productService.getProductById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Not found' });
     const { from_stage, to_stage, role, summary } = req.body || {};
     if (!from_stage || !to_stage || !role || !summary) {
       return res.status(400).json({ error: 'from_stage, to_stage, role and summary are required' });
     }
-    const handoff = productService.createHandoff(req.params.id, req.body || {});
+    const handoff = await productService.createHandoff(req.params.id, req.body || {});
     res.status(201).json(handoff);
   });
 
@@ -338,6 +338,33 @@ function createServer() {
       const envelope = orchestrator.loadEnvelope(run.execution_envelope_path || '');
       if (!envelope) return res.status(404).json({ error: 'Envelope not found for this run' });
       res.json({ envelope, envelope_path: run.execution_envelope_path || '' });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Milestone 4A: Rollback Route ---
+
+  app.post('/api/products/:id/runs/:runId/rollback', async (req, res) => {
+    try {
+      const product = productService.getProductById(req.params.id);
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      const run = productService.runCoordinatorService.getRunById(req.params.runId);
+      if (!run) return res.status(404).json({ error: 'Run not found' });
+      
+      const preRunHash = run.pre_run_hash;
+      if (!preRunHash) return res.status(400).json({ error: 'No pre-run checkpoint available for this run.' });
+
+      const workingDir = product?.repo?.local_path || product?.workspace?.current_working_dir || '';
+      if (!workingDir) return res.status(400).json({ error: 'Working directory not configured.' });
+
+      const git = require('../core/git-orchestrator').getGitOrchestrator();
+      const isRepo = await git.isRepo(workingDir);
+      if (!isRepo) return res.status(400).json({ error: 'Not a git repository.' });
+
+      await git.hardReset(workingDir, preRunHash);
+      
+      res.json({ success: true, message: `Rolled back to ${preRunHash}` });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

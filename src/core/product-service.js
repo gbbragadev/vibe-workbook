@@ -5,6 +5,7 @@ const { getKnowledgePackService } = require('./knowledge-pack-service');
 const { getRunCoordinatorService, buildExpectedOutputs, classifyOutputCategory } = require('./run-coordinator-service');
 const { getExecutionOrchestratorService } = require('./execution-orchestrator-service');
 const { getProjectCopilotService } = require('./project-copilot-service');
+const { getGitOrchestrator } = require('./git-orchestrator');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const REGISTRY_FILE = path.join(ROOT_DIR, 'products', 'registry', 'products.json');
@@ -865,6 +866,7 @@ class ProductService {
     this.runCoordinatorService = opts.runCoordinatorService || getRunCoordinatorService();
     this.orchestratorService = opts.orchestratorService || getExecutionOrchestratorService();
     this.projectCopilotService = opts.projectCopilotService || getProjectCopilotService();
+    this.gitOrchestrator = opts.gitOrchestrator || getGitOrchestrator();
   }
 
   getRegistry() {
@@ -1057,7 +1059,7 @@ class ProductService {
       .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   }
 
-  createHandoff(productId, payload) {
+  async createHandoff(productId, payload) {
     const data = normalizeHandoffs(readJson(this.handoffsFile, { version: 1, handoffs: [] }));
     const product = this.getProductById(productId);
     const explicitRunId = payload.run_id || '';
@@ -1103,6 +1105,19 @@ class ProductService {
       created_at: Date.now(),
       evidence_output_count: evidenceOutputCount
     };
+    const workingDir = payload.workingDir || product?.repo?.local_path || product?.workspace?.current_working_dir || '';
+    if (workingDir) {
+      const isRepo = await this.gitOrchestrator.isRepo(workingDir);
+      if (isRepo) {
+        try {
+          const baselineHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-baseline] Stage Completed: ${payload.to_stage || payload.from_stage || 'Unknown'}`);
+          if (baselineHash) handoff.baseline_hash = baselineHash;
+        } catch (e) {
+          console.error('[Milestone 4A] Failed to create Stage Baseline:', e);
+        }
+      }
+    }
+
     data.handoffs.unshift(handoff);
     writeJsonAtomic(this.handoffsFile, data);
 
@@ -1285,7 +1300,7 @@ class ProductService {
     return detail ? (detail.current_run || null) : null;
   }
 
-  startStage(productId, stageId, payload, store) {
+  async startStage(productId, stageId, payload, store) {
     const product = this.getProductById(productId);
     if (!product) return { error: 'Product not found', status: 404 };
     const stage = STAGE_PRESETS.find((item) => item.id === stageId);
@@ -1297,6 +1312,23 @@ class ProductService {
 
     const workspaceId = payload.workspaceId || product?.workspace?.runtime_workspace_id || '';
     const workingDir = payload.workingDir || product?.repo?.local_path || product?.workspace?.current_working_dir || '';
+    
+    let preRunHash = '';
+    if (workingDir) {
+      const isRepo = await this.gitOrchestrator.isRepo(workingDir);
+      if (isRepo) {
+        const isDirty = await this.gitOrchestrator.isDirty(workingDir);
+        if (isDirty) {
+          return { error: 'Working directory has uncommitted changes. Please commit or stash them before starting an AI run to ensure a safe checkpoint.', status: 400 };
+        }
+        try {
+          preRunHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`);
+        } catch (e) {
+          console.error('[Milestone 4A] Failed to create Pre-Run Checkpoint:', e);
+        }
+      }
+    }
+
     const agent = payload.runtimeAgent || stage.recommendedRuntimeAgent;
     const model = payload.model || '';
     const effort = payload.effort || '';
@@ -1355,6 +1387,7 @@ class ProductService {
         runRecord.execution_contract = contract || null;
         runRecord.output_contract = outputContract || null;
         runRecord.launch_strategy = launchStrategyResult.strategy;
+        if (preRunHash) runRecord.pre_run_hash = preRunHash;
         writeJsonAtomic(this.runCoordinatorService.runsFile, runsData);
       }
     }
@@ -1386,7 +1419,7 @@ class ProductService {
     return { session, stage: stageForRun, product, run, previous_handoff: latestIncomingHandoff || null, execution_envelope: envelopeResult.envelopePath ? envelopeResult : null };
   }
 
-  executeNextAction(productId, actionId, payload, store, workspaces, sessions) {
+  async executeNextAction(productId, actionId, payload, store, workspaces, sessions) {
     const detail = this.getProductDetail(productId, workspaces, sessions);
     if (!detail) return { error: 'Product not found', status: 404 };
 
@@ -1433,7 +1466,7 @@ class ProductService {
 
     const runtimeAgent = payload.runtimeAgent || action.recommended_runtime_agent || '';
     const name = payload.name || `${detail.name} - ${action.step_id} run`;
-    const result = this.startStage(productId, action.step_id, {
+    const result = await this.startStage(productId, action.step_id, {
       ...payload,
       runtimeAgent,
       objective: action.objective || '',
