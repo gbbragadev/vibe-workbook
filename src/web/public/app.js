@@ -27,6 +27,9 @@
   let contextMenuWorkspaceId = null;
   let settings = { theme: 'dark' };
   let currentTheme = 'dark';
+  let ideas = [];
+  let activeIdeaId = null;
+  let discoveryStatus = null;
 
   const AGENT_META = {
     claude: { name: 'Claude Code', icon: 'C', color: '#d97706' },
@@ -163,6 +166,9 @@
     }
     if (type === 'settings:updated') {
       loadSettings().then(renderCurrentView);
+    }
+    if (type.startsWith('idea:')) {
+      if (activeView === 'ideas') renderIdeasView();
     }
   }
 
@@ -326,7 +332,8 @@
       terminals: document.getElementById('btn-terminals'),
       history: document.getElementById('btn-history'),
       discover: document.getElementById('btn-discover'),
-      costs: document.getElementById('btn-cost-dashboard')
+      costs: document.getElementById('btn-cost-dashboard'),
+      ideas: document.getElementById('btn-ideas')
     };
     Object.entries(buttonMap).forEach(([key, btn]) => {
       if (!btn) return;
@@ -341,6 +348,7 @@
       case 'costs': renderCostDashboard(); break;
       case 'history': renderSessionHistory(); break;
       case 'discover': renderDiscovery(); break;
+      case 'ideas': renderIdeasView(); break;
     }
   }
 
@@ -2386,6 +2394,267 @@
     }
   }
 
+  // ============ IDEAS VIEW ============
+  // Note: innerHTML usage is safe here - all user content goes through esc() which uses textContent for sanitization
+
+  async function loadIdeas() {
+    try { ideas = await api('/ideas'); } catch { ideas = []; }
+  }
+
+  async function renderIdeasView() {
+    await loadIdeas();
+    var summaryEl = document.getElementById('ideas-summary');
+    var overviewEl = document.getElementById('ideas-overview');
+    var detailEl = document.getElementById('idea-detail');
+    var discBarEl = document.getElementById('ideas-discovery-bar');
+
+    summaryEl.textContent = ideas.length + ' idea' + (ideas.length !== 1 ? 's' : '');
+
+    // Discovery bar
+    if (discoveryStatus && discoveryStatus.status === 'running') {
+      discBarEl.className = 'discovery-bar';
+      var p = discoveryStatus.progress || {};
+      discBarEl.innerHTML = '<div class="spinner"></div><span>Discovering... ' + (p.completed || 0) + '/' + (p.total || 0) + ' providers, ' + (p.signals || 0) + ' signals</span>';
+    } else {
+      discBarEl.className = 'hidden';
+      discBarEl.innerHTML = '';
+    }
+
+    // Bind header buttons
+    document.getElementById('btn-start-discovery').onclick = startIdeaDiscovery;
+    document.getElementById('btn-new-idea').onclick = showNewIdeaDialog;
+
+    if (!ideas.length) {
+      overviewEl.innerHTML = '<div class="empty-panel"><h3>No ideas yet</h3><p>Click "Discover" to find product opportunities from Reddit, DuckDuckGo and X, or add ideas manually.</p></div>';
+      detailEl.innerHTML = '';
+      return;
+    }
+
+    // Render cards
+    var html = '';
+    ideas.forEach(function(idea) {
+      var scoreClass = idea.score >= 7 ? 'high' : idea.score >= 4 ? 'mid' : 'low';
+      var isActive = idea.id === activeIdeaId;
+      html += '<div class="idea-card' + (isActive ? ' active' : '') + '" data-idea-id="' + idea.id + '">';
+      html += '<div class="idea-card-top">';
+      html += '<div class="idea-card-name">' + esc(idea.title) + '</div>';
+      html += '<div class="idea-card-score ' + scoreClass + '">' + (idea.score || 0) + '</div>';
+      html += '</div>';
+      html += '<div class="idea-card-summary">' + esc(idea.summary || idea.problem || '') + '</div>';
+      html += '<div class="idea-card-footer">';
+      html += '<span class="status-badge status-' + esc(idea.status) + '">' + esc(idea.status) + '</span>';
+      if (idea.signals && idea.signals.length) {
+        html += '<span style="font-size:11px;color:var(--text-muted)">' + idea.signals.length + ' signal' + (idea.signals.length > 1 ? 's' : '') + '</span>';
+      }
+      if (idea.opportunityType && idea.opportunityType !== 'other') {
+        html += '<span style="font-size:11px;color:var(--text-muted)">' + esc(idea.opportunityType) + '</span>';
+      }
+      html += '</div></div>';
+    });
+    overviewEl.innerHTML = html;
+
+    // Bind card clicks
+    overviewEl.querySelectorAll('.idea-card').forEach(function(card) {
+      card.addEventListener('click', function() {
+        activeIdeaId = card.dataset.ideaId;
+        renderIdeasView();
+      });
+    });
+
+    // Render detail
+    if (activeIdeaId) {
+      renderIdeaDetail(detailEl);
+    } else {
+      detailEl.innerHTML = '<div class="empty-panel"><h3>Select an idea</h3><p>Click on an idea card to see details, signals, and scoring.</p></div>';
+    }
+  }
+
+  function renderIdeaDetail(container) {
+    var idea = ideas.find(function(i) { return i.id === activeIdeaId; });
+    if (!idea) {
+      container.innerHTML = '<div class="empty-panel"><h3>Idea not found</h3></div>';
+      return;
+    }
+
+    var scoreClass = idea.score >= 7 ? 'high' : idea.score >= 4 ? 'mid' : 'low';
+    var html = '<div class="idea-detail-header">';
+    html += '<h2>' + esc(idea.title) + '</h2>';
+    html += '<div style="display:flex;gap:8px;align-items:center;margin-top:6px">';
+    html += '<span class="status-badge status-' + esc(idea.status) + '">' + esc(idea.status) + '</span>';
+    html += '<span class="idea-card-score ' + scoreClass + '" style="width:32px;height:32px;font-size:13px">' + (idea.score || 0) + '</span>';
+    html += '<span style="font-size:12px;color:var(--text-muted)">confidence: ' + ((idea.confidence || 0) * 100).toFixed(0) + '%</span>';
+    html += '</div></div>';
+
+    if (idea.problem) {
+      html += '<div class="idea-detail-problem"><strong>Problem:</strong> ' + esc(idea.problem) + '</div>';
+    }
+
+    // Score dimensions
+    var dims = idea._dimensions || {};
+    var dimLabels = {
+      painFrequency: 'Pain Frequency', painIntensity: 'Pain Intensity',
+      useCaseClarity: 'Use Case Clarity', workaroundPresence: 'Workaround Presence',
+      nichePotential: 'Niche Potential', productFit: 'Product Fit'
+    };
+    if (Object.keys(dims).length) {
+      html += '<h3 style="font-size:13px;margin-top:16px">Score Breakdown</h3>';
+      html += '<div class="idea-score-grid">';
+      Object.entries(dimLabels).forEach(function(entry) {
+        var key = entry[0], label = entry[1];
+        var val = dims[key] || 0;
+        html += '<div><div class="idea-score-dim"><span>' + esc(label) + '</span><span>' + val + '/10</span></div>';
+        html += '<div class="idea-score-bar"><div class="idea-score-fill" style="width:' + (val * 10) + '%"></div></div></div>';
+      });
+      html += '</div>';
+    }
+
+    // Tags
+    if (idea.tags && idea.tags.length) {
+      html += '<div style="margin-top:10px">';
+      idea.tags.forEach(function(tag) {
+        html += '<span style="display:inline-block;padding:2px 8px;margin:2px;background:var(--bg-tertiary);border-radius:10px;font-size:11px">' + esc(tag) + '</span>';
+      });
+      html += '</div>';
+    }
+
+    // Sources
+    if (idea.sources && idea.sources.length) {
+      html += '<h3 style="font-size:13px;margin-top:16px">Sources</h3>';
+      idea.sources.forEach(function(src) {
+        html += '<div style="font-size:12px;margin:2px 0"><a href="' + esc(src.url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + esc(src.label || src.type) + '</a></div>';
+      });
+    }
+
+    // Signals
+    if (idea.signals && idea.signals.length) {
+      html += '<h3 style="font-size:13px;margin-top:16px">Signals (' + idea.signals.length + ')</h3>';
+      html += '<div class="idea-signals-list">';
+      idea.signals.forEach(function(sig) {
+        html += '<div class="idea-signal-row">';
+        html += '<div><strong>' + esc(sig.rawTitle || 'Signal') + '</strong></div>';
+        if (sig.rawText) html += '<div style="margin-top:4px">' + esc(sig.rawText.slice(0, 200)) + (sig.rawText.length > 200 ? '...' : '') + '</div>';
+        html += '<div class="idea-signal-source">';
+        html += esc(sig.sourceType) + ' - ' + esc(sig.sourceName || '');
+        if (sig.authorHandle) html += ' - ' + esc(sig.authorHandle);
+        if (sig.engagement && sig.engagement.score) html += ' - score: ' + sig.engagement.score;
+        html += '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    // Actions
+    html += '<div class="idea-actions">';
+    var transitions = { new: ['reviewing'], reviewing: ['approved', 'rejected'], approved: ['converted'], rejected: ['reviewing'] };
+    var allowed = transitions[idea.status] || [];
+    allowed.forEach(function(nextStatus) {
+      if (nextStatus === 'converted') {
+        html += '<button class="btn btn-sm btn-primary" onclick="window._app.convertIdea(\'' + esc(idea.id) + '\')">Convert to Product</button>';
+      } else {
+        var label = nextStatus === 'reviewing' ? 'Start Review' : nextStatus === 'approved' ? 'Approve' : nextStatus === 'rejected' ? 'Reject' : nextStatus;
+        var cls = nextStatus === 'approved' ? 'btn-primary' : nextStatus === 'rejected' ? '' : 'btn-primary';
+        html += '<button class="btn btn-sm ' + cls + '" onclick="window._app.updateIdeaStatus(\'' + esc(idea.id) + '\', \'' + esc(nextStatus) + '\')">' + esc(label) + '</button>';
+      }
+    });
+    html += '<button class="btn btn-sm" style="margin-left:auto;color:var(--danger)" onclick="window._app.deleteIdea(\'' + esc(idea.id) + '\')">Delete</button>';
+    html += '</div>';
+
+    container.innerHTML = html;
+  }
+
+  async function startIdeaDiscovery() {
+    showDialog('Start Discovery',
+      '<div style="margin-bottom:8px;font-size:13px">Enter a search query to discover product/automation opportunities from Reddit, DuckDuckGo, and X.</div>' +
+      '<input type="text" id="discovery-query" placeholder="e.g. automation, dashboard, workflow" style="width:100%;padding:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px" value="automation">',
+      [
+        { label: 'Cancel' },
+        { label: 'Discover', primary: true, action: async function() {
+          var query = document.getElementById('discovery-query').value.trim() || 'automation';
+          discoveryStatus = { status: 'running', progress: { total: 4, completed: 0, signals: 0 } };
+          renderIdeasView();
+          try {
+            var run = await api('/ideas/discover', { method: 'POST', body: JSON.stringify({ query: query }) });
+            discoveryStatus = run;
+          } catch (e) {
+            discoveryStatus = { status: 'error', error: e.message };
+          }
+          renderIdeasView();
+        }}
+      ]
+    );
+  }
+
+  function showNewIdeaDialog() {
+    showDialog('New Idea',
+      '<label style="font-size:12px;display:block;margin-bottom:4px">Title *</label>' +
+      '<input type="text" id="new-idea-title" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px">' +
+      '<label style="font-size:12px;display:block;margin-bottom:4px">Problem</label>' +
+      '<textarea id="new-idea-problem" rows="3" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px;resize:vertical"></textarea>',
+      [
+        { label: 'Cancel' },
+        { label: 'Create', primary: true, action: async function() {
+          var title = document.getElementById('new-idea-title').value.trim();
+          var problem = document.getElementById('new-idea-problem').value.trim();
+          if (!title) return;
+          try {
+            await api('/ideas', { method: 'POST', body: JSON.stringify({ title: title, problem: problem }) });
+            renderIdeasView();
+          } catch (e) {
+            console.error('Failed to create idea:', e);
+          }
+        }}
+      ]
+    );
+  }
+
+  async function updateIdeaStatus(id, status) {
+    try {
+      await api('/ideas/' + id + '/status', { method: 'PUT', body: JSON.stringify({ status: status }) });
+      renderIdeasView();
+    } catch (e) {
+      console.error('Failed to update status:', e);
+    }
+  }
+
+  async function deleteIdea(id) {
+    try {
+      await api('/ideas/' + id, { method: 'DELETE' });
+      if (activeIdeaId === id) activeIdeaId = null;
+      renderIdeasView();
+    } catch (e) {
+      console.error('Failed to delete idea:', e);
+    }
+  }
+
+  async function convertIdea(id) {
+    var idea = ideas.find(function(i) { return i.id === id; });
+    if (!idea) return;
+    showDialog('Convert to Product',
+      '<div style="margin-bottom:8px;font-size:13px">Convert "' + esc(idea.title) + '" into a Product.</div>' +
+      '<label style="font-size:12px;display:block;margin-bottom:4px">Product Name</label>' +
+      '<input type="text" id="convert-name" value="' + esc(idea.title) + '" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px">' +
+      '<label style="font-size:12px;display:block;margin-bottom:4px">Owner</label>' +
+      '<input type="text" id="convert-owner" value="idea-discovery" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px">',
+      [
+        { label: 'Cancel' },
+        { label: 'Convert', primary: true, action: async function() {
+          var name = document.getElementById('convert-name').value.trim();
+          var owner = document.getElementById('convert-owner').value.trim();
+          if (!name) return;
+          try {
+            await api('/ideas/' + id + '/convert', {
+              method: 'POST',
+              body: JSON.stringify({ name: name, owner: owner })
+            });
+            await loadProducts(true);
+            renderIdeasView();
+          } catch (e) {
+            console.error('Failed to convert idea:', e);
+          }
+        }}
+      ]
+    );
+  }
+
   // ============ DIRECTORY BROWSER ============
   function showDirBrowser(data, onSelect) {
     document.getElementById('dialog-title').textContent = 'Select Directory';
@@ -2925,6 +3194,7 @@
     document.getElementById('btn-history').addEventListener('click', function() { switchView('history'); });
     document.getElementById('btn-cost-dashboard').addEventListener('click', function() { switchView('costs'); });
     document.getElementById('btn-discover').addEventListener('click', function() { switchView('discover'); });
+    document.getElementById('btn-ideas').addEventListener('click', function() { switchView('ideas'); });
     document.getElementById('btn-new-product').addEventListener('click', function() { showProductWizard(); });
     document.getElementById('btn-new-workspace').addEventListener('click', newWorkspace);
     document.getElementById('btn-new-session').addEventListener('click', newSession);
@@ -2993,7 +3263,10 @@
       deleteWorkspace: deleteWorkspace,
       showProductWizard: showProductWizard,
       startGuidedStage: startGuidedStage,
-      registerHandoff: registerHandoff
+      registerHandoff: registerHandoff,
+      updateIdeaStatus: updateIdeaStatus,
+      deleteIdea: deleteIdea,
+      convertIdea: convertIdea
     };
 
     updateViewButtons();

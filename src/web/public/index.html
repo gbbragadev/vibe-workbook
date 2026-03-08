@@ -31,6 +31,7 @@
         <button class="btn btn-sm" id="btn-terminals" title="Terminal workspace">Terminals</button>
         <button class="btn btn-sm" id="btn-history" title="Session history">History</button>
         <button class="btn btn-sm" id="btn-discover" title="Discover sessions">Discover</button>
+        <button class="btn btn-sm" id="btn-ideas" title="Idea discovery pipeline">Ideas</button>
         <button class="btn btn-sm" id="btn-cost-dashboard" title="Cost dashboard">Costs</button>
         <select id="theme-select" title="Visual theme">
           <option value="dark">Midnight Indigo</option>
@@ -111,6 +112,27 @@
             <button class="btn btn-sm btn-primary" id="btn-run-discover">Scan</button>
           </div>
           <div id="discover-content"></div>
+        </div>
+
+        <div id="view-ideas" class="view">
+          <div class="ideas-page">
+            <section class="ideas-overview-panel">
+              <div class="ideas-header">
+                <div>
+                  <h2>Ideas</h2>
+                  <p id="ideas-summary" class="products-summary"></p>
+                </div>
+                <div class="ideas-header-actions">
+                  <button class="btn btn-sm btn-primary" id="btn-start-discovery">Discover</button>
+                  <button class="btn btn-sm" id="btn-new-idea">+ Idea</button>
+                </div>
+              </div>
+              <div id="ideas-discovery-bar" class="hidden"></div>
+              <div id="ideas-filters"></div>
+              <div id="ideas-overview"></div>
+            </section>
+            <section id="idea-detail" class="product-detail-panel"></section>
+          </div>
         </div>
       </main>
     </div>
