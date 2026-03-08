@@ -1261,6 +1261,101 @@ body {
   color: var(--text-primary);
 }
 
+/* --- Ideas --- */
+.ideas-page {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+  height: 100%;
+  overflow: hidden;
+}
+.ideas-overview-panel { overflow-y: auto; }
+.ideas-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.ideas-header-actions { display: flex; gap: 6px; }
+.idea-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.idea-card:hover { border-color: var(--accent); }
+.idea-card.active { border-color: var(--accent); background: var(--bg-active); }
+.idea-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+.idea-card-name { font-weight: 600; font-size: 13px; flex: 1; }
+.idea-card-score {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+.idea-card-score.high { background: rgba(16,185,129,0.15); color: var(--success); }
+.idea-card-score.mid { background: rgba(245,158,11,0.15); color: var(--warning); }
+.idea-card-score.low { background: rgba(239,68,68,0.15); color: var(--danger); }
+.idea-card-summary { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.idea-card-footer { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.discovery-bar {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  font-size: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.discovery-bar .spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--text-muted);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.idea-detail-header { margin-bottom: 16px; }
+.idea-detail-problem { margin: 12px 0; padding: 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 13px; }
+.idea-signals-list { margin-top: 12px; }
+.idea-signal-row {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.idea-signal-source { color: var(--text-muted); font-size: 11px; }
+.idea-score-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  font-size: 12px;
+  margin: 10px 0;
+}
+.idea-score-dim { display: flex; justify-content: space-between; }
+.idea-score-bar {
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.idea-score-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.idea-actions { display: flex; gap: 6px; margin-top: 16px; flex-wrap: wrap; }
+
+@media (max-width: 900px) {
+  .ideas-page { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 1180px) {
   .products-page {
     grid-template-columns: 1fr;
