@@ -2909,7 +2909,7 @@
     if (state.discoveryStatus && state.discoveryStatus.status === 'running') {
       discBarEl.className = 'discovery-bar';
       var p = state.discoveryStatus.progress || {};
-      discBarEl.innerHTML = '<div class="spinner"></div><span>Discovering... ' + (p.completed || 0) + '/' + (p.total || 0) + ' providers, ' + (p.signals || 0) + ' signals</span>';
+      discBarEl.innerHTML = '<div class="spinner"></div><span data-testid="discovery-progress-text">Discovering... ' + (p.completed || 0) + '/' + (p.total || 0) + ' providers, ' + (p.signals || 0) + ' signals</span>';
     } else {
       discBarEl.className = 'hidden';
       discBarEl.innerHTML = '';
@@ -2940,14 +2940,14 @@
     state.ideas.forEach(function(idea) {
       var scoreClass = idea.score >= 7 ? 'high' : idea.score >= 4 ? 'mid' : 'low';
       var isActive = idea.id === state.activeIdeaId;
-      html += '<div class="idea-card' + (isActive ? ' active' : '') + '" data-idea-id="' + idea.id + '">';
+      html += '<div class="idea-card' + (isActive ? ' active' : '') + '" data-idea-id="' + idea.id + '" data-testid="idea-card">';
       html += '<div class="idea-card-top">';
       html += '<div class="idea-card-name">' + App.esc(idea.title) + '</div>';
       html += '<div class="idea-card-score ' + scoreClass + '">' + (idea.score || 0) + '</div>';
       html += '</div>';
       html += '<div class="idea-card-summary">' + App.esc(idea.summary || idea.problem || '') + '</div>';
       html += '<div class="idea-card-footer">';
-      html += '<span class="status-badge status-' + App.esc(idea.status) + '">' + App.esc(idea.status) + '</span>';
+      html += '<span class="status-badge status-' + App.esc(idea.status) + '" data-testid="status-badge-' + App.esc(idea.status) + '">' + App.esc(idea.status) + '</span>';
       if (idea.signals && idea.signals.length) {
         html += '<span style="font-size:11px;color:var(--text-muted)">' + idea.signals.length + ' signal' + (idea.signals.length > 1 ? 's' : '') + '</span>';
       }
@@ -2987,8 +2987,8 @@
     var html = '<div class="idea-detail-header">';
     html += '<h2>' + App.esc(idea.title) + '</h2>';
     html += '<div style="display:flex;gap:8px;align-items:center;margin-top:6px">';
-    html += '<span class="status-badge status-' + App.esc(idea.status) + '">' + App.esc(idea.status) + '</span>';
-    html += '<span class="idea-card-score ' + scoreClass + '" style="width:32px;height:32px;font-size:13px">' + (idea.score || 0) + '</span>';
+    html += '<span class="status-badge status-' + App.esc(idea.status) + '" data-testid="status-badge-' + App.esc(idea.status) + '">' + App.esc(idea.status) + '</span>';
+    html += '<span class="idea-card-score ' + scoreClass + '" style="width:32px;height:32px;font-size:13px" data-testid="idea-card-score">' + (idea.score || 0) + '</span>';
     html += '<span style="font-size:12px;color:var(--text-muted)">confidence: ' + ((idea.confidence || 0) * 100).toFixed(0) + '%</span>';
     html += '</div></div>';
 
@@ -3055,11 +3055,11 @@
     var allowed = transitions[idea.status] || [];
     allowed.forEach(function(nextStatus) {
       if (nextStatus === 'converted') {
-        html += '<button class="btn btn-sm btn-primary" onclick="window._app.convertIdea(\'' + App.esc(idea.id) + '\')">Convert to Product</button>';
+        html += '<button class="btn btn-sm btn-primary" data-testid="action-convert" onclick="window._app.convertIdea(\'' + App.esc(idea.id) + '\')">Convert to Product</button>';
       } else {
         var label = nextStatus === 'reviewing' ? 'Start Review' : nextStatus === 'approved' ? 'Approve' : nextStatus === 'rejected' ? 'Reject' : nextStatus;
         var cls = nextStatus === 'approved' ? 'btn-primary' : nextStatus === 'rejected' ? '' : 'btn-primary';
-        html += '<button class="btn btn-sm ' + cls + '" onclick="window._app.updateIdeaStatus(\'' + App.esc(idea.id) + '\', \'' + App.esc(nextStatus) + '\')">' + App.esc(label) + '</button>';
+        html += '<button class="btn btn-sm ' + cls + '" data-testid="action-' + App.esc(nextStatus) + '" onclick="window._app.updateIdeaStatus(\'' + App.esc(idea.id) + '\', \'' + App.esc(nextStatus) + '\')">' + App.esc(label) + '</button>';
       }
     });
     html += '<button class="btn btn-sm" style="margin-left:auto;color:var(--danger)" onclick="window._app.deleteIdea(\'' + App.esc(idea.id) + '\')">Delete</button>';

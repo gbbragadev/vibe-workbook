@@ -14,13 +14,13 @@
     <div class="login-box">
       <h1>Vibe Workbook</h1>
       <p>Multi-agent workspace for vibe coding</p>
-      <input type="password" id="login-password" placeholder="Password" autofocus>
-      <button id="login-btn">Login</button>
+      <input type="password" id="login-password" placeholder="Password" autofocus data-testid="login-password">
+      <button id="login-btn" data-testid="login-submit">Login</button>
       <div id="login-error" class="hidden"></div>
     </div>
   </div>
 
-  <div id="app" class="hidden">
+  <div id="app" class="hidden" data-testid="app-layout">
     <header id="header">
       <div class="header-left">
         <button class="btn btn-sm sidebar-toggle" id="btn-sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
@@ -28,15 +28,15 @@
         <span class="header-stats" id="header-stats"></span>
       </div>
       <div class="header-right">
-        <button class="btn btn-sm btn-primary" id="btn-products" title="Products">Products</button>
-        <button class="btn btn-sm" id="btn-ideas" title="Idea discovery pipeline">Ideas</button>
+        <button class="btn btn-sm btn-primary" id="btn-products" title="Products" data-testid="nav-products">Products</button>
+        <button class="btn btn-sm" id="btn-ideas" title="Idea discovery pipeline" data-testid="nav-ideas">Ideas</button>
         <div class="nav-more-container">
-          <button class="btn btn-sm" id="btn-more" title="More views">More &#9662;</button>
-          <div id="nav-more-dropdown" class="nav-more-dropdown hidden">
-            <button class="btn btn-sm" id="btn-terminals">Terminals</button>
-            <button class="btn btn-sm" id="btn-history">History</button>
-            <button class="btn btn-sm" id="btn-discover">Discover</button>
-            <button class="btn btn-sm" id="btn-cost-dashboard">Costs</button>
+          <button class="btn btn-sm" id="btn-more" title="More views" data-testid="nav-more">More &#9662;</button>
+          <div id="nav-more-dropdown" class="nav-more-dropdown hidden" data-testid="nav-more-dropdown">
+            <button class="btn btn-sm" id="btn-terminals" data-testid="nav-terminals">Terminals</button>
+            <button class="btn btn-sm" id="btn-history" data-testid="nav-history">History</button>
+            <button class="btn btn-sm" id="btn-discover" data-testid="nav-discover">Discover</button>
+            <button class="btn btn-sm" id="btn-cost-dashboard" data-testid="nav-costs">Costs</button>
           </div>
         </div>
         <select id="theme-select" title="Visual theme">
@@ -134,13 +134,13 @@
             <section class="ideas-overview-panel">
               <div class="ideas-header">
                 <div>
-                  <h2>Ideas</h2>
+                  <h2 data-testid="ideas-heading">Ideas</h2>
                   <p id="ideas-summary" class="products-summary"></p>
                 </div>
                 <div class="ideas-header-actions">
-                  <button class="btn btn-sm btn-primary" id="btn-start-discovery">Discover</button>
-                  <button class="btn btn-sm" id="btn-deduplicate-ideas">Deduplicate</button>
-                  <button class="btn btn-sm" id="btn-new-idea">+ Idea</button>
+                  <button class="btn btn-sm btn-primary" id="btn-start-discovery" data-testid="action-start-discovery">Discover</button>
+                  <button class="btn btn-sm" id="btn-deduplicate-ideas" data-testid="action-deduplicate">Deduplicate</button>
+                  <button class="btn btn-sm" id="btn-new-idea" data-testid="action-new-idea">+ Idea</button>
                 </div>
               </div>
               <div id="ideas-discovery-bar" class="hidden"></div>
@@ -154,11 +154,11 @@
     </div>
   </div>
 
-  <div id="dialog-overlay" class="hidden">
-    <div id="dialog-box">
-      <h3 id="dialog-title"></h3>
-      <div id="dialog-body"></div>
-      <div id="dialog-actions"></div>
+  <div id="dialog-overlay" class="hidden" data-testid="dialog-overlay">
+    <div id="dialog-box" data-testid="dialog-box">
+      <h3 id="dialog-title" data-testid="dialog-title"></h3>
+      <div id="dialog-body" data-testid="dialog-body"></div>
+      <div id="dialog-actions" data-testid="dialog-actions"></div>
     </div>
   </div>
 
