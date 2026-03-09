@@ -8,67 +8,7 @@
       "notes": "Pack oficial inicial para discovery, strategy, PRD e launch do produto."
     },
     {
-      "product_id": "smoke-test-1773019291157",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019556671",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019620145",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019635754",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019693958",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019708240",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019766081",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019779918",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019836236",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019849243",
-      "knowledge_pack_id": "pm-skills",
-      "enabled": true,
-      "notes": "Enabled by native onboarding."
-    },
-    {
-      "product_id": "smoke-test-1773019933062",
+      "product_id": "smoke-test-1773093485196",
       "knowledge_pack_id": "pm-skills",
       "enabled": true,
       "notes": "Enabled by native onboarding."
