@@ -58,6 +58,7 @@ class IdeaDiscoveryService {
 
       const groups = this._groupSignalsIntoIdeas(allSignals);
       let ideasCreated = 0;
+      let ideasUpdated = 0;
 
       for (const group of groups) {
         const dims = this._estimateDimensions(group);
@@ -71,24 +72,32 @@ class IdeaDiscoveryService {
           suggestedNextStep: 'Review signals and validate problem'
         };
 
-        let idea;
-        if (this.organizer) {
-          idea = this.organizer.organizeAndCreate(group, dims, rawMeta);
+        // Try merge-or-create
+        const existingIdea = this.ideaService.findSimilarIdea(rawMeta.title, rawMeta.tags);
+        if (existingIdea) {
+          this.ideaService.addSignals(existingIdea.id, group);
+          if (this.organizer) this.organizer.reEnrich(existingIdea.id);
+          ideasUpdated++;
         } else {
-          // Fallback: direct create (backward compat)
-          idea = this.ideaService.createIdea({
-            ...rawMeta,
-            signals: group,
-            sources: group.map(s => ({ type: s.sourceType, label: s.sourceName, url: s.sourceUrl }))
-              .filter((v, i, a) => a.findIndex(x => x.url === v.url) === i),
-            _dimensions: dims
-          });
+          let idea;
+          if (this.organizer) {
+            idea = this.organizer.organizeAndCreate(group, dims, rawMeta);
+          } else {
+            idea = this.ideaService.createIdea({
+              ...rawMeta,
+              signals: group,
+              sources: group.map(s => ({ type: s.sourceType, label: s.sourceName, url: s.sourceUrl }))
+                .filter((v, i, a) => a.findIndex(x => x.url === v.url) === i),
+              _dimensions: dims
+            });
+          }
+          if (idea && !idea.error) ideasCreated++;
         }
-        if (idea && !idea.error) ideasCreated++;
       }
 
       this._activeRun.status = 'completed';
       this._activeRun.ideasCreated = ideasCreated;
+      this._activeRun.ideasUpdated = ideasUpdated;
       this._activeRun.signalsCollected = allSignals.length;
       this._activeRun.completedAt = new Date().toISOString();
       return this._activeRun;

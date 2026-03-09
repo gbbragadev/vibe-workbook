@@ -134,6 +134,24 @@ class IdeaService {
     return fps;
   }
 
+  findSimilarIdea(candidateTitle, candidateKeywords) {
+    const ideas = this._read().ideas;
+    const normCandidate = (candidateTitle || '').toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    const kwSet = new Set(candidateKeywords || []);
+
+    for (const idea of ideas) {
+      const normTitle = (idea.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, '');
+      if (normTitle && normCandidate && (normTitle.includes(normCandidate.slice(0, 30)) || normCandidate.includes(normTitle.slice(0, 30)))) {
+        return idea;
+      }
+      const ideaKws = new Set([...(idea.tags || []), ...(idea.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 2)]);
+      const intersection = [...kwSet].filter(k => ideaKws.has(k)).length;
+      const union = new Set([...kwSet, ...ideaKws]).size;
+      if (union > 0 && intersection / union > 0.35) return idea;
+    }
+    return null;
+  }
+
   addSignals(id, signals) {
     const data = this._read();
     const idea = data.ideas.find(i => i.id === id);
