@@ -123,6 +123,17 @@ class IdeaService {
     this._write(data);
   }
 
+  getAllSignalFingerprints() {
+    const ideas = this._read().ideas;
+    const fps = new Set();
+    for (const idea of ideas) {
+      for (const sig of (idea.signals || [])) {
+        if (sig.fingerprint) fps.add(sig.fingerprint);
+      }
+    }
+    return fps;
+  }
+
   addSignals(id, signals) {
     const data = this._read();
     const idea = data.ideas.find(i => i.id === id);

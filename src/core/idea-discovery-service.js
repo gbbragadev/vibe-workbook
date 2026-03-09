@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { computeFingerprint } = require('./signal-fingerprint');
 
 const STOP_WORDS = new Set(['i','me','my','the','a','an','is','are','was','were','be',
   'been','being','have','has','had','do','does','did','will','would','could','should',
@@ -32,7 +33,7 @@ class IdeaDiscoveryService {
     this._activeRun = {
       id: runId, status: 'running', query,
       startedAt: new Date().toISOString(),
-      progress: { total: this.providers.length, completed: 0, signals: 0 }
+      progress: { total: this.providers.length, completed: 0, signals: 0, signalsDeduped: 0 }
     };
 
     try {
@@ -40,7 +41,15 @@ class IdeaDiscoveryService {
       for (const provider of this.providers) {
         const rawResults = await provider.discover(query);
         const normalized = rawResults.map(r => provider.normalizeSignal(r));
-        allSignals.push(...normalized);
+        // Add fingerprint to each signal
+        for (const sig of normalized) {
+          sig.fingerprint = computeFingerprint(sig);
+        }
+        // Filter out existing fingerprints
+        const existingFps = this.ideaService ? this.ideaService.getAllSignalFingerprints() : new Set();
+        const fresh = normalized.filter(s => !existingFps.has(s.fingerprint));
+        allSignals.push(...fresh);
+        this._activeRun.progress.signalsDeduped += (normalized.length - fresh.length);
         this._activeRun.progress.completed++;
         this._activeRun.progress.signals = allSignals.length;
         if (this._onProgress) this._onProgress(this._activeRun);
