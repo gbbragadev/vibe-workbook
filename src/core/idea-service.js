@@ -141,6 +141,56 @@ class IdeaService {
     return idea;
   }
 
+  deduplicateIdeas() {
+    const data = this._read();
+    const ideas = data.ideas;
+    const map = new Map();
+
+    for (const idea of ideas) {
+      const key = (idea.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+      if (map.has(key)) {
+        const existing = map.get(key);
+        // Merge signals: concat and deduplicate by source
+        const mergedSignals = (existing.signals || []).concat(idea.signals || []);
+        const seen = new Set();
+        existing.signals = mergedSignals.filter(s => {
+          const k = s.source || s.sourceUrl || JSON.stringify(s);
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+        // Keep the higher score
+        if ((idea.score || 0) > (existing.score || 0)) {
+          existing.score = idea.score;
+        }
+      } else {
+        map.set(key, Object.assign({}, idea));
+      }
+    }
+
+    const cleaned = Array.from(map.values());
+    data.ideas = cleaned;
+    this._write(data);
+    return cleaned;
+  }
+
+  clusterIdeas() {
+    const ideas = this._read().ideas;
+    const groups = {};
+
+    for (const idea of ideas) {
+      const label = idea.opportunityType || 'other';
+      if (!groups[label]) groups[label] = [];
+      groups[label].push(idea);
+    }
+
+    return Object.keys(groups).map(label => ({
+      label,
+      ideas: groups[label],
+      count: groups[label].length
+    }));
+  }
+
   static calculateScore(idea) {
     const dims = idea._dimensions || {};
     let weightedSum = 0;
