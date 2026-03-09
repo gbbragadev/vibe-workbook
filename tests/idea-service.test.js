@@ -87,6 +87,15 @@ test('calculateScore returns weighted average', () => {
   assert.ok(score.confidence >= 0 && score.confidence <= 1);
 });
 
+test('calculateScore applies noise penalty', () => {
+  const { IdeaService } = require('../src/core/idea-service');
+  const base = { _dimensions: { painFrequency: 8, painIntensity: 7, useCaseClarity: 6, workaroundPresence: 5, nichePotential: 5, productFit: 5 }, signals: [{ relevanceScore: 0.7 }], noiseLevel: 0 };
+  const noisy = { ...base, noiseLevel: 8 };
+  const cleanScore = IdeaService.calculateScore(base).score;
+  const noisyScore = IdeaService.calculateScore(noisy).score;
+  assert.ok(noisyScore < cleanScore, `noisy ${noisyScore} should be < clean ${cleanScore}`);
+});
+
 test('addSignals appends and recalculates', () => {
   const svc = makeService(makeTempDir());
   const idea = svc.createIdea({ title: 'Sig' });

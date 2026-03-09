@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { computeFingerprint } = require('./signal-fingerprint');
 
 const STOP_WORDS = new Set(['i','me','my','the','a','an','is','are','was','were','be',
   'been','being','have','has','had','do','does','did','will','would','could','should',
@@ -13,6 +14,7 @@ class IdeaDiscoveryService {
   constructor(opts = {}) {
     this.providers = [];
     this.ideaService = opts.ideaService || null;
+    this.organizer = opts.organizer || null;
     this._activeRun = null;
     this._onProgress = opts.onProgress || null;
   }
@@ -32,7 +34,7 @@ class IdeaDiscoveryService {
     this._activeRun = {
       id: runId, status: 'running', query,
       startedAt: new Date().toISOString(),
-      progress: { total: this.providers.length, completed: 0, signals: 0 }
+      progress: { total: this.providers.length, completed: 0, signals: 0, signalsDeduped: 0 }
     };
 
     try {
@@ -40,7 +42,15 @@ class IdeaDiscoveryService {
       for (const provider of this.providers) {
         const rawResults = await provider.discover(query);
         const normalized = rawResults.map(r => provider.normalizeSignal(r));
-        allSignals.push(...normalized);
+        // Add fingerprint to each signal
+        for (const sig of normalized) {
+          sig.fingerprint = computeFingerprint(sig);
+        }
+        // Filter out existing fingerprints
+        const existingFps = this.ideaService ? this.ideaService.getAllSignalFingerprints() : new Set();
+        const fresh = normalized.filter(s => !existingFps.has(s.fingerprint));
+        allSignals.push(...fresh);
+        this._activeRun.progress.signalsDeduped += (normalized.length - fresh.length);
         this._activeRun.progress.completed++;
         this._activeRun.progress.signals = allSignals.length;
         if (this._onProgress) this._onProgress(this._activeRun);
@@ -48,27 +58,46 @@ class IdeaDiscoveryService {
 
       const groups = this._groupSignalsIntoIdeas(allSignals);
       let ideasCreated = 0;
+      let ideasUpdated = 0;
 
       for (const group of groups) {
         const dims = this._estimateDimensions(group);
-        const idea = this.ideaService.createIdea({
+        const rawMeta = {
           title: this._deriveTitle(group),
           summary: this._deriveSummary(group),
           problem: group[0].extractedPain || group[0].rawTitle,
           audience: [],
           opportunityType: this._guessOpportunityType(group),
           tags: this._extractTags(group),
-          signals: group,
-          sources: group.map(s => ({ type: s.sourceType, label: s.sourceName, url: s.sourceUrl }))
-            .filter((v, i, a) => a.findIndex(x => x.url === v.url) === i),
-          suggestedNextStep: 'Review signals and validate problem',
-          _dimensions: dims
-        });
-        if (!idea.error) ideasCreated++;
+          suggestedNextStep: 'Review signals and validate problem'
+        };
+
+        // Try merge-or-create
+        const existingIdea = this.ideaService.findSimilarIdea(rawMeta.title, rawMeta.tags);
+        if (existingIdea) {
+          this.ideaService.addSignals(existingIdea.id, group);
+          if (this.organizer) this.organizer.reEnrich(existingIdea.id);
+          ideasUpdated++;
+        } else {
+          let idea;
+          if (this.organizer) {
+            idea = this.organizer.organizeAndCreate(group, dims, rawMeta);
+          } else {
+            idea = this.ideaService.createIdea({
+              ...rawMeta,
+              signals: group,
+              sources: group.map(s => ({ type: s.sourceType, label: s.sourceName, url: s.sourceUrl }))
+                .filter((v, i, a) => a.findIndex(x => x.url === v.url) === i),
+              _dimensions: dims
+            });
+          }
+          if (idea && !idea.error) ideasCreated++;
+        }
       }
 
       this._activeRun.status = 'completed';
       this._activeRun.ideasCreated = ideasCreated;
+      this._activeRun.ideasUpdated = ideasUpdated;
       this._activeRun.signalsCollected = allSignals.length;
       this._activeRun.completedAt = new Date().toISOString();
       return this._activeRun;
@@ -157,21 +186,37 @@ class IdeaDiscoveryService {
 
   _estimateDimensions(signals) {
     const avgEng = signals.reduce((s, x) => s + (x.engagement?.score || 0), 0) / signals.length;
+    const avgComments = signals.reduce((s, x) => s + (x.engagement?.comments || 0), 0) / signals.length;
     const hasPain = signals.filter(s => s.extractedPain).length;
     const hasUseCase = signals.filter(s => s.extractedUseCase).length;
     const hasWorkaround = signals.filter(s =>
-      (s.rawText || '').toLowerCase().includes('workaround') ||
-      (s.rawText || '').toLowerCase().includes('currently') ||
-      (s.rawText || '').toLowerCase().includes('spreadsheet')
+      /workaround|currently using|spreadsheet|manually/.test((s.rawText || '').toLowerCase())
     ).length;
+    const sourceTypes = new Set(signals.map(s => s.sourceType).filter(Boolean));
+    const isCrossPlatform = sourceTypes.size > 1;
+
+    // nichePotential: base 3 + bonuses
+    let nichePotential = 3;
+    if (isCrossPlatform) nichePotential += 2;
+    if (signals.length >= 3) nichePotential += 1;
+    if (signals.length >= 5) nichePotential += 1;
+    if (avgComments > 10) nichePotential += 1;
+    if (avgComments > 30) nichePotential += 1;
+
+    // productFit: base 2 + bonuses
+    let productFit = 2;
+    if (hasUseCase > 0) productFit += 3;
+    if (hasWorkaround > 0) productFit += 2;
+    if (hasPain / signals.length > 0.5) productFit += 2;
+    if (isCrossPlatform) productFit += 1;
 
     return {
       painFrequency: Math.min(10, Math.round(signals.length * 2)),
       painIntensity: Math.min(10, Math.round((hasPain / signals.length) * 8 + (avgEng > 50 ? 2 : 0))),
       useCaseClarity: Math.min(10, Math.round((hasUseCase / signals.length) * 10)),
       workaroundPresence: Math.min(10, Math.round((hasWorkaround / signals.length) * 10)),
-      nichePotential: Math.min(10, Math.round(5 + (signals.length > 2 ? 2 : 0))),
-      productFit: 5
+      nichePotential: Math.min(10, nichePotential),
+      productFit: Math.min(10, productFit)
     };
   }
 }
