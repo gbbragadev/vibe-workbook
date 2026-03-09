@@ -157,3 +157,66 @@ test('project copilot builds conservative delivery readiness for the ZapCam-styl
   assert.equal(snapshot.delivery_readiness.ready_for_production, false);
   assert.ok(snapshot.created_assets.some((item) => item.stage === 'brief'));
 });
+
+test('buildSnapshot returns operational_summary with expected structure and risk levels', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'repo');
+  const storeFile = path.join(dir, 'project-copilot.json');
+  fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+
+  const service = new ProjectCopilotService({ storeFile });
+  const product = makeProduct(repoDir, { product_id: 'ops-test', name: 'OpsTest', declared_stage: 'spec' });
+
+  // --- Low risk: no candidates, no blockers beyond test-readiness ---
+  const snapshotLow = service.buildSnapshot(product, makeContext({
+    current_stage_id: 'spec',
+    pipeline: [{ stage_id: 'spec', status: 'not-started', required_artifacts: [] }],
+    next_actions: [{ label: 'Write the spec', step_id: 'spec', executable: true, expected_output: 'docs/spec.md', reason: 'Spec is missing.' }],
+    current_stage_knowledge: { available_presets: ['deep-research'] }
+  }));
+
+  assert.ok(snapshotLow.operational_summary, 'snapshot should contain operational_summary');
+  const os1 = snapshotLow.operational_summary;
+
+  // Structure checks
+  assert.equal(typeof os1.current_stage, 'string');
+  assert.ok(Array.isArray(os1.blockers));
+  assert.equal(typeof os1.next_action, 'string');
+  assert.equal(typeof os1.reason, 'string');
+  assert.equal(typeof os1.expected_evidence, 'string');
+  assert.ok(['low', 'medium', 'high'].includes(os1.risk_level), `risk_level should be low|medium|high, got ${os1.risk_level}`);
+  assert.equal(typeof os1.risk_message, 'string');
+  assert.equal(typeof os1.suggested_workflow, 'string');
+
+  // Value checks for minimal product
+  assert.equal(os1.current_stage, 'spec');
+  assert.equal(os1.next_action, 'Write the spec');
+  assert.equal(os1.expected_evidence, 'docs/spec.md');
+  assert.equal(os1.suggested_workflow, 'deep-research');
+
+  // --- High risk: multiple blockers via required_artifacts that are missing ---
+  const snapshotHigh = service.buildSnapshot(product, makeContext({
+    current_stage_id: 'implementation',
+    pipeline: [{ stage_id: 'implementation', status: 'in-progress', required_artifacts: ['spec', 'architecture'] }],
+    artifacts: [
+      { id: 'spec', exists: false, path: '' },
+      { id: 'architecture', exists: false, path: '' }
+    ]
+  }));
+
+  const os2 = snapshotHigh.operational_summary;
+  assert.ok(os2.blockers.length > 1, 'should have multiple blockers');
+  assert.equal(os2.risk_level, 'high');
+  assert.equal(os2.risk_message, 'Multiple blockers detected');
+
+  // --- Medium risk: one blocker ---
+  fs.writeFileSync(path.join(repoDir, 'docs', 'spec.md'), '# spec');
+  const snapshotMed = service.buildSnapshot(makeProduct(repoDir, { product_id: 'ops-med' }), makeContext({
+    current_stage_id: 'brief',
+    pipeline: [{ stage_id: 'brief', status: 'in-progress', required_artifacts: [] }]
+  }));
+
+  const os3 = snapshotMed.operational_summary;
+  // candidates need review -> medium risk
+  assert.ok(['medium', 'high'].includes(os3.risk_level), `expected medium or high, got ${os3.risk_level}`);
+});
