@@ -33,7 +33,8 @@
     currentTheme: 'dark',
     ideas: [],
     activeIdeaId: null,
-    discoveryStatus: null
+    discoveryStatus: null,
+    ideaFilters: { category: '', suggestedAction: '', noiseMax: 10, status: '' }
   };
   var state = App.state;
 
@@ -2952,35 +2953,91 @@
       };
     }
 
+    // Render filter bar
+    var filtersEl = document.getElementById('ideas-filters');
+    if (filtersEl) {
+      var f = state.ideaFilters;
+      var filterParts = [];
+      filterParts.push('<div class="ideas-filter-bar">');
+      filterParts.push('<label>Category <select id="idea-filter-category">');
+      filterParts.push('<option value="">All</option>');
+      ['operations','sales-marketing','engineering','hr-people','finance','customer-success','other'].forEach(function(c) {
+        filterParts.push('<option value="' + c + '"' + (f.category === c ? ' selected' : '') + '>' + c + '</option>');
+      });
+      filterParts.push('</select></label>');
+      filterParts.push('<label>Action <select id="idea-filter-action">');
+      filterParts.push('<option value="">All</option>');
+      ['review','explore','convert_to_product','discard'].forEach(function(a) {
+        filterParts.push('<option value="' + a + '"' + (f.suggestedAction === a ? ' selected' : '') + '>' + a.replace(/_/g, ' ') + '</option>');
+      });
+      filterParts.push('</select></label>');
+      filterParts.push('<label>Noise max <input type="range" id="idea-filter-noise" min="0" max="10" value="' + f.noiseMax + '"> <span id="idea-noise-val">' + f.noiseMax + '</span></label>');
+      filterParts.push('<label>Status <select id="idea-filter-status">');
+      filterParts.push('<option value="">All</option>');
+      ['new','reviewing','approved','rejected','converted'].forEach(function(s) {
+        filterParts.push('<option value="' + s + '"' + (f.status === s ? ' selected' : '') + '>' + s + '</option>');
+      });
+      filterParts.push('</select></label>');
+      filterParts.push('</div>');
+      filtersEl.textContent = '';
+      filtersEl.insertAdjacentHTML('afterbegin', filterParts.join(''));
+
+      document.getElementById('idea-filter-category').onchange = function() { state.ideaFilters.category = this.value; App.renderIdeasView(); };
+      document.getElementById('idea-filter-action').onchange = function() { state.ideaFilters.suggestedAction = this.value; App.renderIdeasView(); };
+      document.getElementById('idea-filter-noise').oninput = function() { state.ideaFilters.noiseMax = parseInt(this.value); document.getElementById('idea-noise-val').textContent = this.value; App.renderIdeasView(); };
+      document.getElementById('idea-filter-status').onchange = function() { state.ideaFilters.status = this.value; App.renderIdeasView(); };
+    }
+
     if (!state.ideas.length) {
       if (ideasPageEl) ideasPageEl.classList.add('ideas-page-single');
-      overviewEl.innerHTML = '<div class="empty-state empty-state-guided"><h3>No ideas yet</h3><p>Start with discovery to surface real demand signals, or add one idea manually to review it here.</p><button class="btn btn-primary" onclick="App.startIdeaDiscovery()">Start Discovery</button></div>';
-      detailEl.innerHTML = '';
+      overviewEl.textContent = '';
+      overviewEl.insertAdjacentHTML('afterbegin', '<div class="empty-state empty-state-guided"><h3>No ideas yet</h3><p>Start with discovery to surface real demand signals, or add one idea manually to review it here.</p><button class="btn btn-primary" onclick="App.startIdeaDiscovery()">Start Discovery</button></div>');
+      detailEl.textContent = '';
       return;
     }
 
+    // Apply filters
+    var filtered = state.ideas.filter(function(idea) {
+      var f = state.ideaFilters;
+      if (f.category && idea.category !== f.category) return false;
+      if (f.suggestedAction && idea.suggestedAction !== f.suggestedAction) return false;
+      if (typeof idea.noiseScore === 'number' && idea.noiseScore > f.noiseMax) return false;
+      if (f.status && idea.status !== f.status) return false;
+      return true;
+    });
+
     // Render cards
-    var html = '';
-    state.ideas.forEach(function(idea) {
+    var cardParts = [];
+    filtered.forEach(function(idea) {
       var scoreClass = idea.score >= 7 ? 'high' : idea.score >= 4 ? 'mid' : 'low';
+      var noiseLevel = (idea.noiseScore || 0) <= 3 ? 'low' : (idea.noiseScore || 0) <= 6 ? 'mid' : 'high';
       var isActive = idea.id === state.activeIdeaId;
-      html += '<div class="idea-card' + (isActive ? ' active' : '') + '" data-idea-id="' + idea.id + '" data-testid="idea-card">';
-      html += '<div class="idea-card-top">';
-      html += '<div class="idea-card-name">' + App.esc(idea.title) + '</div>';
-      html += '<div class="idea-card-score ' + scoreClass + '">' + (idea.score || 0) + '</div>';
-      html += '</div>';
-      html += '<div class="idea-card-summary">' + App.esc(idea.summary || idea.problem || '') + '</div>';
-      html += '<div class="idea-card-footer">';
-      html += '<span class="status-badge status-' + App.esc(idea.status) + '" data-testid="status-badge-' + App.esc(idea.status) + '">' + App.esc(idea.status) + '</span>';
+      cardParts.push('<div class="idea-card' + (isActive ? ' active' : '') + '" data-idea-id="' + App.esc(idea.id) + '" data-testid="idea-card">');
+      cardParts.push('<div class="idea-card-top">');
+      cardParts.push('<div class="idea-card-name">' + App.esc(idea.title) + '</div>');
+      cardParts.push('<span class="noise-dot noise-' + noiseLevel + '" title="Noise: ' + (idea.noiseScore || 0) + '/10"></span>');
+      cardParts.push('<div class="idea-card-score ' + scoreClass + '">' + (idea.score || 0) + '</div>');
+      cardParts.push('</div>');
+      cardParts.push('<div class="idea-card-summary">' + App.esc(idea.summary || idea.problem || '') + '</div>');
+      cardParts.push('<div class="idea-card-footer">');
+      cardParts.push('<span class="status-badge status-' + App.esc(idea.status) + '" data-testid="status-badge-' + App.esc(idea.status) + '">' + App.esc(idea.status) + '</span>');
+      if (idea.suggestedAction) {
+        var actionLabels = { review: 'Review', explore: 'Explore', convert_to_product: 'Convert', discard: 'Discard' };
+        cardParts.push('<span class="action-badge action-' + App.esc(idea.suggestedAction) + '">' + App.esc(actionLabels[idea.suggestedAction] || idea.suggestedAction) + '</span>');
+      }
+      if (idea.category) {
+        cardParts.push('<span class="category-badge">' + App.esc(idea.category) + '</span>');
+      }
       if (idea.signals && idea.signals.length) {
-        html += '<span style="font-size:11px;color:var(--text-muted)">' + idea.signals.length + ' signal' + (idea.signals.length > 1 ? 's' : '') + '</span>';
+        cardParts.push('<span style="font-size:11px;color:var(--text-muted)">' + idea.signals.length + ' signal' + (idea.signals.length > 1 ? 's' : '') + '</span>');
       }
       if (idea.opportunityType && idea.opportunityType !== 'other') {
-        html += '<span style="font-size:11px;color:var(--text-muted)">' + App.esc(idea.opportunityType) + '</span>';
+        cardParts.push('<span style="font-size:11px;color:var(--text-muted)">' + App.esc(idea.opportunityType) + '</span>');
       }
-      html += '</div></div>';
+      cardParts.push('</div></div>');
     });
-    overviewEl.innerHTML = html;
+    overviewEl.textContent = '';
+    overviewEl.insertAdjacentHTML('afterbegin', cardParts.join(''));
 
     // Bind card clicks
     overviewEl.querySelectorAll('.idea-card').forEach(function(card) {
@@ -3018,6 +3075,39 @@
 
     if (idea.problem) {
       html += '<div class="idea-detail-problem"><strong>Problem:</strong> ' + App.esc(idea.problem) + '</div>';
+    }
+
+    // Classification info
+    if (idea.category || idea.subcategory) {
+      html += '<div style="display:flex;gap:6px;align-items:center;margin:8px 0">';
+      if (idea.category) html += '<span class="category-badge">' + App.esc(idea.category) + '</span>';
+      if (idea.subcategory) html += '<span class="category-badge">' + App.esc(idea.subcategory) + '</span>';
+      html += '</div>';
+    }
+
+    // Rationale
+    if (idea.rationale) {
+      html += '<div class="idea-detail-rationale">' + App.esc(idea.rationale) + '</div>';
+    }
+
+    // Suggested action callout
+    if (idea.suggestedAction) {
+      var actionDescriptions = {
+        review: 'This idea needs human review to validate demand signals.',
+        explore: 'Worth investigating further with deeper research.',
+        convert_to_product: 'Strong signals suggest this should become a product.',
+        discard: 'Low signal quality or too noisy to pursue.'
+      };
+      html += '<div class="suggested-action-callout">';
+      html += '<div class="action-label"><span class="action-badge action-' + App.esc(idea.suggestedAction) + '">' + App.esc(idea.suggestedAction.replace(/_/g, ' ')) + '</span></div>';
+      html += '<div class="action-desc">' + App.esc(actionDescriptions[idea.suggestedAction] || '') + '</div>';
+      html += '</div>';
+    }
+
+    // Noise indicator
+    if (typeof idea.noiseScore === 'number') {
+      var noiseLevel = idea.noiseScore <= 3 ? 'low' : idea.noiseScore <= 6 ? 'mid' : 'high';
+      html += '<div style="margin:8px 0;font-size:12px;display:flex;align-items:center;gap:6px"><span class="noise-dot noise-' + noiseLevel + '"></span> Noise: ' + idea.noiseScore + '/10</div>';
     }
 
     // Score dimensions
