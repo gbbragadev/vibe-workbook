@@ -352,6 +352,8 @@
   // ============ VIEW SWITCHING ============
   App.switchView = function switchView(view) {
     state.activeView = view;
+    var dd = document.getElementById('nav-more-dropdown');
+    if (dd) dd.classList.add('hidden');
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.getElementById('view-' + view).classList.add('active');
     App.updateViewButtons();
@@ -371,6 +373,11 @@
       if (!btn) return;
       btn.classList.toggle('btn-primary', key === state.activeView);
     });
+    var moreBtn = document.getElementById('btn-more');
+    if (moreBtn) {
+      var moreViews = ['terminals', 'history', 'discover', 'costs'];
+      moreBtn.classList.toggle('btn-primary', moreViews.indexOf(state.activeView) !== -1);
+    }
   }
 
   App.renderCurrentView = function renderCurrentView() {
@@ -556,8 +563,8 @@
 
     if (!state.products.length) {
       summary.textContent = 'No products registered.';
-      overview.innerHTML = '<div class="empty-panel"><h3>No products</h3><p class="empty-subtext">Registry data is unavailable.</p></div>';
-      detail.innerHTML = '<div class="empty-panel"><h3>Product detail</h3><p class="empty-subtext">Select a product when the catalog is available.</p></div>';
+      overview.innerHTML = '<div class="empty-state"><h3>No products yet</h3><p>Products are the center of your workflow. Create your first product to start tracking stages, artifacts, and readiness.</p><button class="btn btn-primary" onclick="App.showProductWizard()">+ Create Product</button></div>';
+      detail.innerHTML = '<div class="empty-state"><h3>Select a product</h3><p>Choose a product from the list to see its pipeline, readiness, and copilot guidance.</p></div>';
       return;
     }
 
@@ -615,29 +622,15 @@
   App.buildReadinessPanel = function buildReadinessPanel(detail) {
     var readiness = detail.readiness;
     if (!readiness) return '';
-    var releasePacket = detail.release_packet || {};
-    var displayReadiness = App.deriveReadinessDisplay(readiness);
-    var statusClass = displayReadiness.status === 'ready-for-release-candidate' ? 'readiness-ready' : displayReadiness.status === 'needs-evidence' ? 'readiness-needs-evidence' : 'readiness-not-ready';
-    var signalsHtml = (readiness.signals || []).map(function(s) {
-      var strength = s.strength || 'none';
-      var dots = strength === 'strong' ? '●●●' : strength === 'sufficient' ? '●●' : strength === 'weak' ? '●' : '';
-      var strengthBadge = dots ? '<span class="signal-strength ' + strength + '" title="Signal strength: ' + strength + '">' + dots + '</span>' : '';
-      return '<div class="readiness-signal-row ' + (s.met ? 'met' : 'unmet') + '">' + (s.met ? '&#10003;' : '&#10007;') + ' ' + App.esc(s.label) + strengthBadge + '</div>';
+    var light = readiness.traffic_light || 'red';
+    var checklistHtml = (readiness.signals || []).map(function(s) {
+      return '<div class="readiness-check ' + (s.met ? 'met' : 'unmet') + '">' +
+        (s.met ? '&#10003;' : '&#10007;') + ' ' + App.esc(s.label) + '</div>';
     }).join('');
-    var gapsHtml = (readiness.gaps || []).length
-      ? '<div class="chip-row" style="margin-top:10px">' + readiness.gaps.map(function(g) { return '<span class="chip ' + (g.severity === 'required' ? 'warn' : 'subtle') + '">' + App.esc(g.label) + '</span>'; }).join('') + '</div>'
-      : '';
-    var keyArtifactsHtml = (releasePacket.key_artifacts || []).map(function(a) {
-      var contentState = a.content_status || (a.exists ? 'valid' : 'missing');
-      var label = contentState === 'skeletal' ? 'skeletal' : (a.exists ? 'present' : 'missing');
-      return '<span class="artifact-chip ' + App.esc(contentState === 'valid' ? 'exists' : contentState) + '">' + App.esc(a.label) + ': ' + label + '</span>';
-    }).join('');
-    return '<section class="detail-panel"><div class="panel-header"><h3>Release Readiness</h3><span class="status-pill ' + App.esc(statusClass) + '">' + App.esc(displayReadiness.label) + '</span></div><div class="panel-body">' +
-      '<div class="summary-callout ' + statusClass + '"><strong>' + App.esc(displayReadiness.label) + '</strong><p style="margin-top:6px;font-size:13px;color:var(--text-secondary)">' + App.esc(displayReadiness.summary) + '</p></div>' +
-      '<div class="readiness-signals">' + signalsHtml + '</div>' +
-      gapsHtml +
-      (keyArtifactsHtml ? '<div style="margin-top:12px"><span class="meta-item-label">Key Artifacts</span><div class="chip-row" style="margin-top:6px">' + keyArtifactsHtml + '</div></div>' : '') +
-      (releasePacket.next_release_step ? '<div class="summary-callout" style="margin-top:12px"><span class="meta-item-label">Next Release Step</span><p style="margin-top:6px;font-size:13px">' + App.esc(releasePacket.next_release_step) + '</p></div>' : '') +
+    return '<section class="detail-panel"><div class="panel-header"><h3>Readiness</h3></div>' +
+      '<div class="readiness-compact-body">' +
+      '<div class="traffic-light-large traffic-light-' + App.esc(light) + '"></div>' +
+      '<div class="readiness-checklist">' + checklistHtml + '</div>' +
       '</div></section>';
   }
 
@@ -1042,29 +1035,28 @@
     var primaryAction = App.resolvePrimaryProductAction(detail);
     var statusMeta = App.resolveCopilotStatus(detail, pendingItems, primaryAction);
     var riskMeta = App.resolveCopilotRiskMeta(detail, pendingItems);
-    var evidence = App.resolveExpectedEvidence(detail, stageId, pendingItems);
-    var narrative = App.buildCopilotNarrative(detail, stageId, pendingItems, primaryAction);
-    var reason = App.buildCopilotReason(detail, stageId, pendingItems, primaryAction);
     var heroAction = App.resolveCopilotHeroAction(detail, stageId, pendingItems, statusMeta);
-    var artifactSummary = detail.artifact_summary || { present: 0, total: 0 };
-    var displayReadiness = App.deriveReadinessDisplay(detail.readiness || {});
-    var blockers = ((copilot.current_state || {}).blockers || []).slice(0, 3);
-    var stageLabel = detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea';
 
-    var riskClass = riskMeta.level === 'success' ? 'tone-success' : (riskMeta.level === 'warning' || riskMeta.level === 'medium' ? 'tone-warning' : 'tone-danger');
+    // Use operational_summary if available, fallback to existing helpers
+    var ops = copilot.operational_summary || {};
+    var blockers = ops.blockers || ((copilot.current_state || {}).blockers || []).slice(0, 3).map(function(b) { return b.label || b; });
+    var riskLevel = ops.risk_level || riskMeta.level || 'low';
+    var riskMessage = ops.risk_message || riskMeta.message || '';
+    var reason = ops.reason || '';
+    var evidence = ops.expected_evidence || '';
+    var workflow = ops.suggested_workflow || '';
 
-    var pendingHtml = pendingItems.length
-      ? '<div class="copilot-task-list">' + pendingItems.map(function(item) {
-          var statusIcon = item.status === 'missing' ? '<span class="copilot-icon missing">&#10007;</span>'
-            : item.status === 'blocked' ? '<span class="copilot-icon blocked">!</span>'
-            : '<span class="copilot-icon review">...</span>';
-          return '<div class="copilot-task-row"><div class="copilot-task-info">' + statusIcon + '<div><strong>' + App.esc(item.title) + '</strong><div class="artifact-row-meta">' + App.esc(item.detail || '') + '</div></div></div><div class="copilot-task-action">' + App.buildCopilotTaskAction(item) + '</div></div>';
-        }).join('') + '</div>'
-      : '';
+    var riskClass = riskLevel === 'low' || riskLevel === 'success' ? 'tone-success' : (riskLevel === 'medium' || riskLevel === 'warning' ? 'tone-warning' : 'tone-danger');
 
+    // Blockers section
+    var blockersHtml = blockers.length
+      ? '<div class="copilot-blockers">' + blockers.map(function(b) { return '<div class="copilot-blocker-item">&#10007; ' + App.esc(typeof b === 'string' ? b : b.label || '') + '</div>'; }).join('') + '</div>'
+      : '<div class="copilot-blockers"><div class="copilot-no-blockers">&#10003; No blockers</div></div>';
+
+    // Done section (compact, max 5)
     var doneHtml = doneItems.length
-      ? '<div class="copilot-done-list">' + doneItems.map(function(item) {
-          return '<div class="copilot-done-row"><span class="copilot-icon done">&#10003;</span><div><span>' + App.esc(item.label) + '</span><span class="artifact-row-meta mono">' + App.esc(item.meta || '') + '</span></div></div>';
+      ? '<div class="copilot-done-compact"><div class="meta-item-label" style="margin-bottom:6px">Done</div>' + doneItems.slice(0, 5).map(function(item) {
+          return '<div class="copilot-done-row"><span class="copilot-icon done">&#10003;</span> <span>' + App.esc(item.label) + '</span></div>';
         }).join('') + '</div>'
       : '';
 
@@ -1073,22 +1065,22 @@
         '<div class="copilot-hero-status"><h3>Project Copilot</h3><span class="chip ' + App.esc(statusMeta.className) + '">' + App.esc(statusMeta.label) + '</span></div>' +
         '<div class="copilot-hero-risk ' + App.esc(riskClass) + '"><span class="risk-label">' + App.esc(riskMeta.label) + '</span></div>' +
       '</div>' +
-      '<div class="copilot-hero-stats">' +
-        '<div class="copilot-stat"><span class="copilot-stat-label">Stage</span><span class="copilot-stat-value">' + App.esc(stageLabel) + '</span></div>' +
-        '<div class="copilot-stat"><span class="copilot-stat-label">Artifacts</span><span class="copilot-stat-value">' + App.esc(String(artifactSummary.present) + '/' + String(artifactSummary.total)) + '</span></div>' +
-        '<div class="copilot-stat"><span class="copilot-stat-label">Readiness</span><span class="copilot-stat-value">' + App.esc(displayReadiness.label || 'N/A') + '</span></div>' +
-        '<div class="copilot-stat"><span class="copilot-stat-label">Blockers</span><span class="copilot-stat-value">' + App.esc(String(blockers.length)) + '</span></div>' +
+      blockersHtml +
+      '<div class="copilot-ops-section">' +
+        '<div class="copilot-hero-cta">' + heroAction.html +
+          (workflow ? '<span class="chip subtle" style="margin-left:8px">' + App.esc(workflow) + '</span>' : '') +
+        '</div>' +
+        (reason ? '<div class="copilot-reason-short">' + App.esc(reason) + '</div>' : '') +
+        (evidence ? '<div class="copilot-evidence-short">' + App.esc(evidence) + '</div>' : '') +
+        (riskMessage ? '<div class="copilot-risk-inline ' + App.esc(riskClass) + '">' + App.esc(riskMessage) + '</div>' : '') +
       '</div>' +
-      '<div class="copilot-hero-body">' +
-        '<p class="copilot-narrative">' + App.esc(narrative) + '</p>' +
-        '<p class="copilot-reason">' + App.esc(reason) + '</p>' +
-        (evidence.path ? '<div class="copilot-evidence"><span class="meta-item-label">Evidencia esperada</span><span class="mono">' + App.esc(evidence.path) + '</span><span class="artifact-row-meta">' + App.esc(evidence.helper || '') + '</span></div>' : '') +
-        '<div class="copilot-hero-cta">' + heroAction.html + '<span class="artifact-row-meta">' + App.esc(heroAction.support || '') + '</span></div>' +
-        (riskMeta.message ? '<div class="copilot-risk-message ' + App.esc(riskClass) + '"><span>' + App.esc(riskMeta.message) + '</span></div>' : '') +
-      '</div>' +
-      (blockers.length ? '<div class="copilot-blocker-chips">' + blockers.map(function(b) { return '<span class="chip warn">' + App.esc(b.label) + '</span>'; }).join('') + '</div>' : '') +
-      (pendingHtml ? '<div class="copilot-hero-pending"><div class="meta-item-label">Pendencias</div>' + pendingHtml + '</div>' : '') +
-      (doneHtml ? '<div class="copilot-hero-done"><div class="meta-item-label">Concluido</div>' + doneHtml + '</div>' : '') +
+      (pendingItems.length ? '<div class="copilot-hero-pending"><div class="meta-item-label" style="padding:8px 16px">Pending</div><div class="copilot-task-list">' + pendingItems.map(function(item) {
+          var statusIcon = item.status === 'missing' ? '<span class="copilot-icon missing">&#10007;</span>'
+            : item.status === 'blocked' ? '<span class="copilot-icon blocked">!</span>'
+            : '<span class="copilot-icon review">...</span>';
+          return '<div class="copilot-task-row"><div class="copilot-task-info">' + statusIcon + '<div><strong>' + App.esc(item.title) + '</strong><div class="artifact-row-meta">' + App.esc(item.detail || '') + '</div></div></div><div class="copilot-task-action">' + App.buildCopilotTaskAction(item) + '</div></div>';
+        }).join('') + '</div></div>' : '') +
+      doneHtml +
       '</section>';
   }
 
@@ -1229,7 +1221,8 @@
     const knowledgeBody = App.buildKnowledgePackPanel(detail) + '<div style="margin-top:14px">' + App.buildStageKnowledgePanel(detail) + '</div>';
     const technicalBody = App.buildHandoffHistoryPanel(detail);
     const sessionsBody = '<div class="session-list">' + ((detail.related_sessions || []).map(session => App.buildProductSessionRow(session)).join('') || '<p>No linked sessions yet.</p>') + '</div>';
-    return '<div class="product-detail-header"><div class="product-row"><div><h2>' + App.esc(detail.name) + '</h2><div class="product-subtitle">' + App.esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + App.esc(detail.category) + '</span><span class="chip subtle">stage: ' + App.esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + App.buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
+    var trafficLight = (detail.readiness || {}).traffic_light || 'red';
+    return '<div class="product-detail-header"><div class="product-row"><div><h2>' + App.esc(detail.name) + ' <span class="traffic-light traffic-light-' + App.esc(trafficLight) + '"></span></h2><div class="product-subtitle">' + App.esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + App.esc(detail.category) + '</span><span class="chip subtle">stage: ' + App.esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + App.buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
       '<button class="btn btn-sm" data-product-action="change-workspace">Change Runtime Workspace</button>' +
       '</div></div><div class="product-detail-scroll">' +
@@ -1239,7 +1232,7 @@
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Current Run', App.esc(currentRun ? (currentRun.status || 'active') : 'no active run'), App.buildCurrentRunPanel(detail, currentRun), false) +
       App.buildCollapsiblePanel('Next Actions', ((detail.next_actions || []).length) + ' suggested', '<div class="next-actions-list">' + ((detail.next_actions || []).map(function(action) { return App.buildNextActionRow(action, detail); }).join('') || '<p>No next actions available.</p>') + '</div>', false) + '</div>' +
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Pipeline', detail.pipeline.length + ' stages', pipelineBody, false) +
-      '<section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta">collapsed by default</span></div><div class="panel-body"><div class="detail-grid"><div>' + App.buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + App.buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section></div>' +
+      '<section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta"></span></div><div class="panel-body"><div class="detail-grid"><div>' + App.buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + App.buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section></div>' +
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Knowledge Packs & Guidance', ((detail.knowledge_packs || []).length) + ' active', knowledgeBody, false) +
       App.buildOperateLitePanel(detail) + '</div>' +
       '</div></div>';
@@ -1460,12 +1453,29 @@
   }
 
   App.openSessionInTerminals = function openSessionInTerminals(sessionId, productId) {
+    if (state.activeView === 'products') {
+      App.openProductTerminal(sessionId);
+      return;
+    }
     const product = state.products.find(p => p.product_id === productId);
     if (product && product.workspace && product.workspace.runtime_workspace_id) App.setActiveWorkspace(product.workspace.runtime_workspace_id);
     const session = state.allSessions.find(s => s.id === sessionId);
     if (session && session.workspaceId) App.setActiveWorkspace(session.workspaceId);
     App.renderWorkspaceList();
     App.switchView('terminals');
+  }
+
+  App.openProductTerminal = function openProductTerminal(sessionId) {
+    var container = document.getElementById('product-terminal');
+    if (!container) return;
+    container.classList.remove('hidden');
+    container.innerHTML = '<button class="terminal-close-btn" id="close-product-terminal">Close</button><div id="product-terminal-body" style="height:100%;width:100%"></div>';
+    var bodyEl = document.getElementById('product-terminal-body');
+    App.createTerminal(sessionId, bodyEl);
+    document.getElementById('close-product-terminal').addEventListener('click', function() {
+      container.classList.add('hidden');
+      container.innerHTML = '';
+    });
   }
 
   App.buildAgentOptions = function buildAgentOptions(defaultAgent, allowedAgents) {
@@ -1798,7 +1808,9 @@
           '<label>Category</label><select id="dlg-product-category"><option value="product"' + (draft.category === 'product' ? ' selected' : '') + '>product</option><option value="internal-tool"' + (draft.category === 'internal-tool' ? ' selected' : '') + '>internal-tool</option><option value="experiment"' + (draft.category === 'experiment' ? ' selected' : '') + '>experiment</option></select>' +
           '<label>Initial Stage</label><select id="dlg-product-stage">' + App.STAGE_ORDER.filter(item => item !== 'test' && item !== 'release').map(item => '<option value="' + item + '"' + (draft.stage === item ? ' selected' : '') + '>' + App.esc(item) + '</option>').join('') + '</select>' +
           '<label>Summary</label><textarea id="dlg-product-summary" placeholder="Short product summary.">' + App.esc(draft.summary) + '</textarea>' +
-          '<p class="wizard-help">Create the delivery unit first. Runtime workspace and scaffold stay optional in the next step.</p>';
+          '<p class="wizard-help">Create the delivery unit first. Runtime workspace and scaffold stay optional in the next step.</p>' +
+          '<div class="wizard-divider">or</div>' +
+          '<button type="button" class="btn btn-sm" id="btn-start-from-idea">Start from approved idea</button>';
 
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'btn';
@@ -1838,6 +1850,34 @@
         idInput.addEventListener('input', () => { draft.auto_slug = false; });
         slugInput.addEventListener('input', () => { draft.auto_slug = false; });
         nameInput.addEventListener('input', syncIds);
+
+        var startFromIdeaBtn = document.getElementById('btn-start-from-idea');
+        if (startFromIdeaBtn) {
+          startFromIdeaBtn.addEventListener('click', async function() {
+            try {
+              var ideas = await App.api('/ideas?status=approved');
+              if (!ideas || !ideas.length) {
+                alert('No approved ideas available. Approve ideas first in the Ideas view.');
+                return;
+              }
+              var listHtml = ideas.map(function(idea) {
+                return '<div class="idea-card" data-idea-id="' + App.esc(idea.id) + '" style="cursor:pointer;margin-bottom:8px"><div class="idea-card-name">' + App.esc(idea.title) + '</div><div class="idea-card-summary">' + App.esc(idea.summary || idea.problem || '') + '</div></div>';
+              }).join('');
+              body.innerHTML = '<h4>Select an approved idea</h4>' + listHtml;
+              body.querySelectorAll('.idea-card').forEach(function(card) {
+                card.addEventListener('click', async function() {
+                  try {
+                    var result = await App.api('/ideas/' + encodeURIComponent(card.dataset.ideaId) + '/convert', { method: 'POST' });
+                    App.hideDialog();
+                    await App.loadProducts(true);
+                    if (result && result.product_id) App.setActiveProduct(result.product_id);
+                    App.renderCurrentView();
+                  } catch(e) { alert('Conversion failed: ' + e.message); }
+                });
+              });
+            } catch(e) { alert('Failed to load ideas: ' + e.message); }
+          });
+        }
       } else {
         const workspaceOptions = ['<option value="">Select runtime workspace</option>']
           .concat(state.workspaces.map(ws => '<option value="' + ws.id + '"' + (ws.id === draft.workspace_id ? ' selected' : '') + '>' + App.esc(ws.name) + ' - ' + App.esc(ws.workingDir || 'no working dir') + '</option>'))
@@ -2271,7 +2311,7 @@
 
   App.buildCurrentRunPanel = function buildCurrentRunPanel(detail, run) {
     if (!run) {
-      return '<div class="run-empty"><strong>No coordinated run active</strong><p class="empty-subtext">Execute a next action or start a stage to create the first tracked run for this product.</p></div>';
+      return '<div class="empty-state-inline">No active run. Start a stage to create one.</div>';
     }
 
     const runId = run.id || run.run_id || 'run-pending';
@@ -2794,9 +2834,18 @@
     // Bind header buttons
     document.getElementById('btn-start-discovery').onclick = App.startIdeaDiscovery;
     document.getElementById('btn-new-idea').onclick = App.showNewIdeaDialog;
+    var deduplicateBtn = document.getElementById('btn-deduplicate-ideas');
+    if (deduplicateBtn) {
+      deduplicateBtn.onclick = async function() {
+        try {
+          await App.api('/ideas/deduplicate', { method: 'POST' });
+          App.renderIdeasView();
+        } catch(e) { alert('Deduplication failed: ' + e.message); }
+      };
+    }
 
     if (!state.ideas.length) {
-      overviewEl.innerHTML = '<div class="empty-panel"><h3>No ideas yet</h3><p>Click "Discover" to find product opportunities from Reddit, DuckDuckGo and X, or add ideas manually.</p></div>';
+      overviewEl.innerHTML = '<div class="empty-state"><h3>No ideas yet</h3><p>Use discovery to find product opportunities from Reddit, DuckDuckGo and more, or add ideas manually.</p><button class="btn btn-primary" onclick="App.startIdeaDiscovery()">Start Discovery</button></div>';
       detailEl.innerHTML = '';
       return;
     }
@@ -3566,6 +3615,15 @@
     document.getElementById('btn-cost-dashboard').addEventListener('click', function() { App.switchView('costs'); });
     document.getElementById('btn-discover').addEventListener('click', function() { App.switchView('discover'); });
     document.getElementById('btn-ideas').addEventListener('click', function() { App.switchView('ideas'); });
+    // More dropdown toggle
+    document.getElementById('btn-more').addEventListener('click', function(e) {
+      e.stopPropagation();
+      document.getElementById('nav-more-dropdown').classList.toggle('hidden');
+    });
+    document.addEventListener('click', function() {
+      var dd = document.getElementById('nav-more-dropdown');
+      if (dd) dd.classList.add('hidden');
+    });
     document.getElementById('btn-new-product').addEventListener('click', function() { App.showProductWizard(); });
     document.getElementById('btn-new-workspace').addEventListener('click', App.newWorkspace);
     document.getElementById('btn-new-session').addEventListener('click', App.newSession);

@@ -1777,3 +1777,39 @@ test('readiness signals include strength field in output', () => {
       `Signal ${s.id} should have valid strength, got: ${s.strength}`);
   });
 });
+
+test('deriveReadiness includes traffic_light field', () => {
+  // All 5 signals met -> green
+  const allMet = deriveReadiness({}, [
+    { id: 'test-strategy', exists: true },
+    { id: 'release-plan', exists: true },
+    { id: 'runbook', exists: true }
+  ], [
+    { stage_id: 'implementation', status: 'done' },
+    { stage_id: 'test', status: 'done' }
+  ], [
+    { from_stage: 'implementation', to_stage: 'test', evidence_output_count: 2, created_at: 1000 },
+    { from_stage: 'test', to_stage: 'release', evidence_output_count: 1, created_at: 2000 }
+  ]);
+  assert.equal(allMet.traffic_light, 'green');
+
+  // 3 signals met -> yellow
+  const threeMet = deriveReadiness({}, [
+    { id: 'test-strategy', exists: true },
+    { id: 'release-plan', exists: true },
+    { id: 'runbook', exists: true }
+  ], [
+    { stage_id: 'implementation', status: 'not-started' },
+    { stage_id: 'test', status: 'not-started' }
+  ], []);
+  assert.equal(threeMet.traffic_light, 'yellow');
+
+  // 1 signal met -> red
+  const oneMet = deriveReadiness({}, [
+    { id: 'test-strategy', exists: true }
+  ], [
+    { stage_id: 'implementation', status: 'not-started' },
+    { stage_id: 'test', status: 'not-started' }
+  ], []);
+  assert.equal(oneMet.traffic_light, 'red');
+});

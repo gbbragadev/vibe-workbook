@@ -921,9 +921,12 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
     severity: s.required ? 'required' : 'recommended'
   }));
 
+  const trafficLight = requiredMet >= 5 ? 'green' : requiredMet >= 3 ? 'yellow' : 'red';
+
   return {
     status,
     label,
+    traffic_light: trafficLight,
     evaluated: 'on-demand',
     signals: signals.map(s => ({ id: s.id, label: s.label, met: s.met, strength: s.strength })),
     gaps,

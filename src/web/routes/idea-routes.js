@@ -18,6 +18,16 @@ function createIdeaRoutes({ ideaService, ideaDiscoveryService, productService, s
     res.status(201).json(result);
   });
 
+  router.post('/ideas/deduplicate', (req, res) => {
+    const cleaned = ideaService.deduplicateIdeas();
+    res.json(cleaned);
+  });
+
+  router.get('/ideas/clusters', (req, res) => {
+    const clusters = ideaService.clusterIdeas();
+    res.json(clusters);
+  });
+
   router.get('/ideas/discover/status', (req, res) => {
     res.json(ideaDiscoveryService.getDiscoveryStatus());
   });

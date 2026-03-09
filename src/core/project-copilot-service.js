@@ -671,6 +671,48 @@ class ProjectCopilotService {
     };
   }
 
+  _buildOperationalSummary(product, context, currentState, candidates, deliveryReadiness, recommendation) {
+    const currentStage = context.current_stage_id || product.declared_stage || 'idea';
+    const blockers = (currentState.blockers || []).slice(0, 3).map((b) => b.label || b);
+
+    const nextActions = Array.isArray(context.next_actions) ? context.next_actions : [];
+    const firstNextAction = nextActions[0] || {};
+    const nextAction = firstNextAction.label || recommendation.action_type || 'continue';
+
+    const fullReason = recommendation.reason || '';
+    const reason = fullReason.includes('.') ? fullReason.split('.')[0] + '.' : fullReason;
+
+    const expectedEvidence = (firstNextAction.expected_output || '');
+
+    const candidateNeedsReview = (candidates || []).filter((item) => item.accepted === null && item.counts_as_artifact);
+    let riskLevel;
+    let riskMessage;
+    if (blockers.length > 1) {
+      riskLevel = 'high';
+      riskMessage = 'Multiple blockers detected';
+    } else if (blockers.length === 1 || candidateNeedsReview.length > 0) {
+      riskLevel = 'medium';
+      riskMessage = 'One issue needs attention';
+    } else {
+      riskLevel = 'low';
+      riskMessage = '';
+    }
+
+    const stageKnowledge = context.current_stage_knowledge || {};
+    const suggestedWorkflow = (Array.isArray(stageKnowledge.available_presets) ? stageKnowledge.available_presets : [])[0] || '';
+
+    return {
+      current_stage: currentStage,
+      blockers,
+      next_action: nextAction,
+      reason,
+      expected_evidence: expectedEvidence,
+      risk_level: riskLevel,
+      risk_message: riskMessage,
+      suggested_workflow: suggestedWorkflow
+    };
+  }
+
   buildSnapshot(product, context = {}) {
     if (!product || !product.product_id) return null;
     const persistedState = this.getProductState(product.product_id);
@@ -697,7 +739,8 @@ class ProjectCopilotService {
       decision_log: decisionLog,
       open_questions: openQuestions,
       recommended_next_move: recommendedNextMove,
-      delivery_readiness: deliveryReadiness
+      delivery_readiness: deliveryReadiness,
+      operational_summary: this._buildOperationalSummary(product, context, currentState, candidateArtifacts, deliveryReadiness, recommendedNextMove)
     };
   }
 }
