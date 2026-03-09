@@ -18,6 +18,17 @@ function createIdeaRoutes({ ideaService, ideaDiscoveryService, productService, s
     res.status(201).json(result);
   });
 
+  router.post('/ideas/enrich-all', (req, res) => {
+    const ideas = ideaService.getIdeas();
+    let enriched = 0;
+    const organizer = req.app.locals.ideaOrganizer;
+    if (!organizer) return res.status(500).json({ error: 'Organizer not available' });
+    for (const idea of ideas) {
+      if (organizer.reEnrich(idea.id)) enriched++;
+    }
+    res.json({ enriched, total: ideas.length });
+  });
+
   router.post('/ideas/deduplicate', (req, res) => {
     const cleaned = ideaService.deduplicateIdeas();
     res.json(cleaned);

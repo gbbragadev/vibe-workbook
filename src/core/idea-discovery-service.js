@@ -14,6 +14,7 @@ class IdeaDiscoveryService {
   constructor(opts = {}) {
     this.providers = [];
     this.ideaService = opts.ideaService || null;
+    this.organizer = opts.organizer || null;
     this._activeRun = null;
     this._onProgress = opts.onProgress || null;
   }
@@ -60,20 +61,30 @@ class IdeaDiscoveryService {
 
       for (const group of groups) {
         const dims = this._estimateDimensions(group);
-        const idea = this.ideaService.createIdea({
+        const rawMeta = {
           title: this._deriveTitle(group),
           summary: this._deriveSummary(group),
           problem: group[0].extractedPain || group[0].rawTitle,
           audience: [],
           opportunityType: this._guessOpportunityType(group),
           tags: this._extractTags(group),
-          signals: group,
-          sources: group.map(s => ({ type: s.sourceType, label: s.sourceName, url: s.sourceUrl }))
-            .filter((v, i, a) => a.findIndex(x => x.url === v.url) === i),
-          suggestedNextStep: 'Review signals and validate problem',
-          _dimensions: dims
-        });
-        if (!idea.error) ideasCreated++;
+          suggestedNextStep: 'Review signals and validate problem'
+        };
+
+        let idea;
+        if (this.organizer) {
+          idea = this.organizer.organizeAndCreate(group, dims, rawMeta);
+        } else {
+          // Fallback: direct create (backward compat)
+          idea = this.ideaService.createIdea({
+            ...rawMeta,
+            signals: group,
+            sources: group.map(s => ({ type: s.sourceType, label: s.sourceName, url: s.sourceUrl }))
+              .filter((v, i, a) => a.findIndex(x => x.url === v.url) === i),
+            _dimensions: dims
+          });
+        }
+        if (idea && !idea.error) ideasCreated++;
       }
 
       this._activeRun.status = 'completed';

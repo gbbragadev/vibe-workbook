@@ -15,6 +15,7 @@ const { getProductService } = require('../core/product-service');
 const { getKnowledgePackService } = require('../core/knowledge-pack-service');
 const { getIdeaService } = require('../core/idea-service');
 const { getIdeaDiscoveryService } = require('../core/idea-discovery-service');
+const { getIdeaOrganizer } = require('../core/idea-organizer');
 const { MockDiscoveryProvider } = require('../core/discovery-providers/mock-provider');
 const { RedditProvider } = require('../core/discovery-providers/reddit-provider');
 const { WebProvider } = require('../core/discovery-providers/web-provider');
@@ -40,6 +41,10 @@ function createServer() {
   const knowledgePackService = getKnowledgePackService();
   const ideaService = getIdeaService();
   const ideaDiscoveryService = getIdeaDiscoveryService();
+  const ideaOrganizer = getIdeaOrganizer();
+  ideaOrganizer.ideaService = ideaService;
+  ideaDiscoveryService.organizer = ideaOrganizer;
+  app.locals.ideaOrganizer = ideaOrganizer;
 
   // --- Auth ---
   const config = store.getConfig();
