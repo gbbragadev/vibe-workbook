@@ -1620,9 +1620,11 @@
       preset_id: item.preset_id || '',
       preset_label: item.preset_label || ''
     })) + '"' + ((defaultPreset && item.preset_id === defaultPreset.preset_id && item.preset_type === defaultPreset.preset_type && item.knowledge_pack_id === defaultPreset.knowledge_pack_id) || (!defaultPreset && index === 0) ? ' selected' : '') + '>' + App.esc((item.knowledge_pack_name || item.knowledge_pack_id || 'Knowledge Pack') + ' - ' + item.preset_label) + '</option>').join('');
-    App.showDialog('Start ' + stage.label, '<label>Stage</label><input type="text" value="' + App.esc(stage.label) + '" disabled><label>Recommended Role</label><input type="text" value="' + App.esc(stage.recommended_role) + '" disabled>' + knowledgeBlock + handoffBlock + (uniqueStagePresets.length > 1 ? '<label>Execution Preset</label><select id="dlg-stage-preset">' + presetOptions + '</select>' : '') + '<label>Session Name</label><input type="text" id="dlg-stage-name" value="' + App.esc(defaultName) + '"><label>Runtime Agent</label><select id="dlg-stage-agent">' + App.buildAgentOptions(defaultAgent, stage.allowed_runtime_agents) + '</select><label>Model</label><select id="dlg-stage-model">' + App.buildModelOptionsFor(defaultAgent) + '</select><div id="dlg-stage-effort-wrap"><label>Effort</label><select id="dlg-stage-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div><label>Working Directory</label><input type="text" id="dlg-stage-dir" value="' + App.esc(workingDir) + '"><label>Goal</label><textarea disabled>' + App.esc(stage.goal) + '</textarea>', [
+    App.showDialog('Start ' + stage.label, '<div id="dlg-stage-error" class="dialog-error-msg" style="display:none"></div><label>Stage</label><input type="text" value="' + App.esc(stage.label) + '" disabled><label>Recommended Role</label><input type="text" value="' + App.esc(stage.recommended_role) + '" disabled>' + knowledgeBlock + handoffBlock + (uniqueStagePresets.length > 1 ? '<label>Execution Preset</label><select id="dlg-stage-preset">' + presetOptions + '</select>' : '') + '<label>Session Name</label><input type="text" id="dlg-stage-name" value="' + App.esc(defaultName) + '"><label>Runtime Agent</label><select id="dlg-stage-agent">' + App.buildAgentOptions(defaultAgent, stage.allowed_runtime_agents) + '</select><label>Model</label><select id="dlg-stage-model">' + App.buildModelOptionsFor(defaultAgent) + '</select><div id="dlg-stage-effort-wrap"><label>Effort</label><select id="dlg-stage-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div><label>Working Directory</label><input type="text" id="dlg-stage-dir" value="' + App.esc(workingDir) + '"><label>Goal</label><textarea disabled>' + App.esc(stage.goal) + '</textarea>', [
       { label: 'Cancel', onClick: function() {} },
       { label: 'Create Session', primary: true, onClick: async function() {
+        var errorEl = document.getElementById('dlg-stage-error');
+        if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
         const presetSelect = document.getElementById('dlg-stage-preset');
         let selectedPreset = defaultPreset;
         if (presetSelect && presetSelect.value) {
@@ -1632,27 +1634,32 @@
             selectedPreset = defaultPreset;
           }
         }
-        await App.api('/products/' + encodeURIComponent(productId) + '/stages/' + encodeURIComponent(stageId) + '/start', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: document.getElementById('dlg-stage-name').value.trim() || defaultName,
-            runtimeAgent: document.getElementById('dlg-stage-agent').value,
-            model: document.getElementById('dlg-stage-model').value,
-            effort: document.getElementById('dlg-stage-effort').value,
-            workingDir: document.getElementById('dlg-stage-dir').value,
-            knowledge_pack_id: selectedPreset ? selectedPreset.knowledge_pack_id : '',
-            knowledge_pack_name: selectedPreset ? selectedPreset.knowledge_pack_name : '',
-            preset_type: selectedPreset ? selectedPreset.preset_type : '',
-            preset_id: selectedPreset ? selectedPreset.preset_id : '',
-            preset_label: selectedPreset ? selectedPreset.preset_label : '',
-            previous_handoff_id: latestIncomingHandoff ? latestIncomingHandoff.handoff_id : '',
-            previous_handoff_summary: latestIncomingHandoff ? latestIncomingHandoff.summary : ''
-          })
-        });
-        await App.loadAllSessions();
-        await App.loadProducts(true);
-        App.renderWorkspaceList();
-        App.renderCurrentView();
+        try {
+          await App.api('/products/' + encodeURIComponent(productId) + '/stages/' + encodeURIComponent(stageId) + '/start', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: document.getElementById('dlg-stage-name').value.trim() || defaultName,
+              runtimeAgent: document.getElementById('dlg-stage-agent').value,
+              model: document.getElementById('dlg-stage-model').value,
+              effort: document.getElementById('dlg-stage-effort').value,
+              workingDir: document.getElementById('dlg-stage-dir').value,
+              knowledge_pack_id: selectedPreset ? selectedPreset.knowledge_pack_id : '',
+              knowledge_pack_name: selectedPreset ? selectedPreset.knowledge_pack_name : '',
+              preset_type: selectedPreset ? selectedPreset.preset_type : '',
+              preset_id: selectedPreset ? selectedPreset.preset_id : '',
+              preset_label: selectedPreset ? selectedPreset.preset_label : '',
+              previous_handoff_id: latestIncomingHandoff ? latestIncomingHandoff.handoff_id : '',
+              previous_handoff_summary: latestIncomingHandoff ? latestIncomingHandoff.summary : ''
+            })
+          });
+          await App.loadAllSessions();
+          await App.loadProducts(true);
+          App.renderWorkspaceList();
+          App.renderCurrentView();
+        } catch (err) {
+          if (errorEl) { errorEl.textContent = err.message; errorEl.style.display = 'block'; }
+          throw err;
+        }
       }}
     ]);
     setTimeout(() => {
@@ -3224,9 +3231,13 @@
       var btn = document.createElement('button');
       btn.className = 'btn ' + (action.primary ? 'btn-primary' : '');
       btn.textContent = action.label;
-      btn.addEventListener('click', function() {
-        App.hideDialog();
-        handler();
+      btn.addEventListener('click', async function() {
+        try {
+          await handler();
+          App.hideDialog();
+        } catch (e) {
+          console.warn('Dialog action error:', e.message);
+        }
       });
       actionsEl.appendChild(btn);
     });
