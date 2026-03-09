@@ -186,20 +186,8 @@ class IdeaService {
   }
 
   clusterIdeas() {
-    const ideas = this._read().ideas;
-    const groups = {};
-
-    for (const idea of ideas) {
-      const label = idea.opportunityType || 'other';
-      if (!groups[label]) groups[label] = [];
-      groups[label].push(idea);
-    }
-
-    return Object.keys(groups).map(label => ({
-      label,
-      ideas: groups[label],
-      count: groups[label].length
-    }));
+    const { clusterIdeas: cluster } = require('./idea-cluster');
+    return cluster(this._read().ideas);
   }
 
   static calculateScore(idea) {
