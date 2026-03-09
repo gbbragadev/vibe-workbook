@@ -903,8 +903,9 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
 
   const requiredSignals = signals.filter(s => s.required);
   const requiredMet = requiredSignals.filter(s => s.met).length;
+  const hasWeakRequired = requiredSignals.some(s => s.met && s.strength === 'weak');
   let status, label;
-  if (requiredMet >= 5) {
+  if (requiredMet >= 5 && !hasWeakRequired) {
     status = 'ready-for-release-candidate';
     label = 'Ready for release candidate';
   } else if (requiredMet >= 3) {
@@ -921,7 +922,7 @@ function deriveReadiness(product, artifacts, pipeline, handoffs) {
     severity: s.required ? 'required' : 'recommended'
   }));
 
-  const trafficLight = requiredMet >= 5 ? 'green' : requiredMet >= 3 ? 'yellow' : 'red';
+  const trafficLight = requiredMet >= 5 && !hasWeakRequired ? 'green' : requiredMet >= 3 ? 'yellow' : 'red';
 
   return {
     status,
