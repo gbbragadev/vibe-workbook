@@ -59,12 +59,21 @@ function makeProductService(dir, opts = {}) {
     recommendations: []
   });
   const runCoordinatorService = opts.runCoordinatorService || new RunCoordinatorService({ runsFile });
+  const gitOrchestrator = opts.gitOrchestrator || {
+    isRepo: async () => false,
+    isDirty: async () => false,
+    commitAll: async () => null,
+    getHeadHash: async () => null,
+    hardReset: async () => {},
+    init: async () => {}
+  };
 
   return new ProductService({
     registryFile,
     handoffsFile,
     knowledgePackService,
     runCoordinatorService,
+    gitOrchestrator,
     projectCopilotService: opts.projectCopilotService
   });
 }
@@ -289,7 +298,7 @@ test('product service enriches next actions with knowledge preset metadata when 
   assert.equal(action.preset_origin_stage, 'brief');
 });
 
-test('product service includes current run and hydrated run outputs in detail', () => {
+test('product service includes current run and hydrated run outputs in detail', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
   fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
@@ -326,7 +335,7 @@ test('product service includes current run and hydrated run outputs in detail', 
     }
   };
 
-  const start = service.startStage('zapcam', 'spec', { runtimeAgent: 'claude' }, store);
+  const start = await service.startStage('zapcam', 'spec', { runtimeAgent: 'claude' }, store);
   const detail = service.getProductDetail('zapcam', [{ id: 'ws-zap', name: 'Zapcam Workspace' }], [
     { id: 'sess-run', name: start.session.name, workspaceId: 'ws-zap', status: 'running', agent: 'claude', stageId: 'spec', role: 'delivery-planner', workingDir: repoDir, updatedAt: Date.now(), productId: 'zapcam', runId: start.run.run_id }
   ]);
@@ -341,7 +350,7 @@ test('product service includes current run and hydrated run outputs in detail', 
   assert.ok(detail.runs.some((run) => run.run_id === start.run.run_id));
 });
 
-test('product service hydrates current run with knowledge driver metadata when execution comes from pack', () => {
+test('product service hydrates current run with knowledge driver metadata when execution comes from pack', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -404,7 +413,7 @@ test('product service hydrates current run with knowledge driver metadata when e
     }
   };
 
-  const result = service.executeNextAction('zapcam', 'start:brief', { runtimeAgent: 'claude' }, store, [{ id: 'ws-zap', name: 'Zapcam Workspace' }], []);
+  const result = await service.executeNextAction('zapcam', 'start:brief', { runtimeAgent: 'claude' }, store, [{ id: 'ws-zap', name: 'Zapcam Workspace' }], []);
   const detail = service.getProductDetail('zapcam', [{ id: 'ws-zap', name: 'Zapcam Workspace' }], [
     { id: 'sess-run', name: result.session.name, workspaceId: 'ws-zap', status: 'running', agent: 'claude', stageId: 'brief', role: 'product-designer', workingDir: repoDir, updatedAt: Date.now(), productId: 'zapcam', runId: result.run.run_id }
   ]);
@@ -421,7 +430,7 @@ test('product service hydrates current run with knowledge driver metadata when e
   assert.match(created[0].promptSeed, /Knowledge Preset: workflow \/discover/);
 });
 
-test('product service creates handoff and guided session', () => {
+test('product service creates handoff and guided session', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'tool');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -461,8 +470,8 @@ test('product service creates handoff and guided session', () => {
     }
   };
 
-  const start = service.startStage('tool', 'architecture', { runtimeAgent: 'codex' }, store);
-  const handoff = service.createHandoff('tool', {
+  const start = await service.startStage('tool', 'architecture', { runtimeAgent: 'codex' }, store);
+  const handoff = await service.createHandoff('tool', {
     run_id: start.run.run_id,
     from_stage: 'architecture',
     to_stage: 'implementation',
@@ -496,7 +505,7 @@ test('product service creates handoff and guided session', () => {
   assert.ok(detail.current_run.produced_outputs.some((output) => output.type === 'handoff' && output.ref_id === handoff.handoff_id));
 });
 
-test('product service snapshots run context inside handoff records', () => {
+test('product service snapshots run context inside handoff records', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'snap');
   fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
@@ -534,7 +543,7 @@ test('product service snapshots run context inside handoff records', () => {
     }
   };
 
-  const start = service.startStage('snap', 'brief', {
+  const start = await service.startStage('snap', 'brief', {
     runtimeAgent: 'claude',
     knowledge_pack_id: 'pm-skills',
     knowledge_pack_name: 'PM Skills',
@@ -542,7 +551,7 @@ test('product service snapshots run context inside handoff records', () => {
     preset_id: '/discover',
     preset_label: '/discover'
   }, store);
-  const handoff = service.createHandoff('snap', {
+  const handoff = await service.createHandoff('snap', {
     run_id: start.run.run_id,
     from_stage: 'brief',
     to_stage: 'spec',
@@ -563,7 +572,7 @@ test('product service snapshots run context inside handoff records', () => {
   assert.equal(handoff.knowledge_driver.preset_id, '/discover');
 });
 
-test('product service carries latest handoff into the next stage prompt and current run', () => {
+test('product service carries latest handoff into the next stage prompt and current run', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'flow');
   fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
@@ -598,8 +607,8 @@ test('product service carries latest handoff into the next stage prompt and curr
     }
   };
 
-  const briefRun = service.startStage('flow', 'brief', { runtimeAgent: 'claude' }, store);
-  service.createHandoff('flow', {
+  const briefRun = await service.startStage('flow', 'brief', { runtimeAgent: 'claude' }, store);
+  await service.createHandoff('flow', {
     run_id: briefRun.run.run_id,
     from_stage: 'brief',
     to_stage: 'spec',
@@ -610,7 +619,7 @@ test('product service carries latest handoff into the next stage prompt and curr
     artifact_refs: ['brief'],
     output_refs: ['artifact:brief']
   });
-  const specStart = service.startStage('flow', 'spec', { runtimeAgent: 'claude' }, store);
+  const specStart = await service.startStage('flow', 'spec', { runtimeAgent: 'claude' }, store);
   const detail = service.getProductDetail('flow', [{ id: 'ws-flow', name: 'Flow Workspace' }], [
     { id: briefRun.session.id, name: briefRun.session.name, workspaceId: 'ws-flow', status: 'running', agent: 'claude', stageId: 'brief', role: 'product-designer', workingDir: repoDir, updatedAt: Date.now(), productId: 'flow', runId: briefRun.run.run_id },
     { id: specStart.session.id, name: specStart.session.name, workspaceId: 'ws-flow', status: 'running', agent: 'claude', stageId: 'spec', role: 'delivery-planner', workingDir: repoDir, updatedAt: Date.now(), productId: 'flow', runId: specStart.run.run_id }
@@ -708,7 +717,7 @@ test('product service resolves consolidated working directory from workspace lin
   assert.equal(resolved, repoDir);
 });
 
-test('product service executes next action by creating a run and linked session', () => {
+test('product service executes next action by creating a run and linked session', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'repo');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -745,7 +754,7 @@ test('product service executes next action by creating a run and linked session'
   };
 
   assert.ok(action);
-  const result = service.executeNextAction('p1', action.id, { runtimeAgent: 'gemini' }, store, [{ id: 'ws-1', name: 'Workspace 1' }], []);
+  const result = await service.executeNextAction('p1', action.id, { runtimeAgent: 'gemini' }, store, [{ id: 'ws-1', name: 'Workspace 1' }], []);
 
   assert.equal(result.reused, false);
   assert.equal(result.action.id, 'start:brief');
@@ -860,7 +869,7 @@ test('product service falls back safely when stage has no knowledge recommendati
   assert.equal(action.preset_label || '', '');
 });
 
-test('product service reuses active run and session when executing continue action', () => {
+test('product service reuses active run and session when executing continue action', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'repo');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -940,7 +949,7 @@ test('product service reuses active run and session when executing continue acti
   };
 
   assert.ok(action);
-  const result = service.executeNextAction('p2', action.id, {}, store, workspaces, sessions);
+  const result = await service.executeNextAction('p2', action.id, {}, store, workspaces, sessions);
 
   assert.equal(result.reused, true);
   assert.equal(result.run.run_id, run.run_id);
@@ -950,7 +959,7 @@ test('product service reuses active run and session when executing continue acti
   assert.ok(reusedRun.produced_outputs.some((output) => output.type === 'action' && output.label === action.label));
 });
 
-test('product service uses latest incoming handoff to enrich next action continuity and guided prompt', () => {
+test('product service uses latest incoming handoff to enrich next action continuity and guided prompt', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'repo');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -1003,7 +1012,7 @@ test('product service uses latest incoming handoff to enrich next action continu
     workspaceId: 'ws-3',
     agent: 'claude'
   });
-  const handoff = service.createHandoff('p3', {
+  const handoff = await service.createHandoff('p3', {
     run_id: briefRun.run_id,
     from_stage: 'brief',
     to_stage: 'spec',
@@ -1043,7 +1052,7 @@ test('product service uses latest incoming handoff to enrich next action continu
   assert.equal(action.previous_handoff_id, handoff.handoff_id);
   assert.equal(action.previous_handoff_summary, 'Brief is ready for spec.');
 
-  const result = service.executeNextAction('p3', action.id, {}, store, workspaces, sessions);
+  const result = await service.executeNextAction('p3', action.id, {}, store, workspaces, sessions);
 
   assert.equal(result.previous_handoff?.handoff_id, handoff.handoff_id);
   assert.match(action.label, /Start Spec from Brief completion/);
@@ -1052,7 +1061,7 @@ test('product service uses latest incoming handoff to enrich next action continu
   assert.match(created[0].promptSeed, /Referenced outputs: artifact:brief/);
 });
 
-test('product service pipeline prioritizes runs and handoffs over artifact-only progress', () => {
+test('product service pipeline prioritizes runs and handoffs over artifact-only progress', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'repo');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -1105,7 +1114,7 @@ test('product service pipeline prioritizes runs and handoffs over artifact-only 
     workspace_id: 'ws-4',
     expected_outputs: [{ output_id: 'artifact:brief', type: 'artifact', ref_id: 'brief', label: 'Brief', required: true }]
   });
-  const handoff = service.createHandoff('p4', {
+  const handoff = await service.createHandoff('p4', {
     run_id: briefRun.run_id,
     from_stage: 'brief',
     to_stage: 'spec',
@@ -1134,7 +1143,7 @@ test('product service pipeline prioritizes runs and handoffs over artifact-only 
   assert.ok(spec.active_run_id);
 });
 
-test('hydrated current run exposes primary session and conservative ready-to-complete signal', () => {
+test('hydrated current run exposes primary session and conservative ready-to-complete signal', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'repo');
   fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
@@ -1170,7 +1179,7 @@ test('hydrated current run exposes primary session and conservative ready-to-com
     }
   };
 
-  service.startStage('ready', 'spec', { runtimeAgent: 'claude' }, store);
+  await service.startStage('ready', 'spec', { runtimeAgent: 'claude' }, store);
   const detail = service.getProductDetail('ready', [{ id: 'ws-ready', name: 'Workspace Ready' }], [
     { id: 'sess-ready', name: created[0].name, workspaceId: 'ws-ready', status: 'running', agent: 'claude', stageId: 'spec', role: 'delivery-planner', workingDir: repoDir, updatedAt: Date.now(), productId: 'ready', runId: created[0].runId }
   ]);
@@ -1180,7 +1189,7 @@ test('hydrated current run exposes primary session and conservative ready-to-com
   assert.equal(detail.current_run.is_ready_to_complete, true);
 });
 
-test('getHandoffs returns enriched records with snapshots and knowledge driver metadata', () => {
+test('getHandoffs returns enriched records with snapshots and knowledge driver metadata', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'product-service-'));
   const registryFile = path.join(dir, 'products.json');
   fs.writeFileSync(registryFile, JSON.stringify({
@@ -1228,7 +1237,7 @@ test('getHandoffs returns enriched records with snapshots and knowledge driver m
     preset_origin: 'next-action'
   });
 
-  service.createHandoff('p5', {
+  await service.createHandoff('p5', {
     run_id: run.run_id,
     from_stage: 'brief',
     to_stage: 'spec',
@@ -1532,7 +1541,7 @@ test('classifyOutputCategory returns correct categories', () => {
   assert.equal(classifyOutputCategory('unknown-type'), 'context');
 });
 
-test('createHandoff computes evidence_output_count from run produced outputs', () => {
+test('createHandoff computes evidence_output_count from run produced outputs', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'test-product');
   fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
@@ -1569,7 +1578,7 @@ test('createHandoff computes evidence_output_count from run produced outputs', (
     }]
   }, null, 2));
 
-  const handoff = svc.createHandoff('test-ev', {
+  const handoff = await svc.createHandoff('test-ev', {
     run_id: runId,
     from_stage: 'implementation',
     to_stage: 'test',
@@ -1579,7 +1588,7 @@ test('createHandoff computes evidence_output_count from run produced outputs', (
   assert.equal(handoff.evidence_output_count, 2, 'Should count 2 evidence outputs (artifact + handoff types)');
 });
 
-test('createHandoff with zero evidence outputs sets evidence_output_count to 0', () => {
+test('createHandoff with zero evidence outputs sets evidence_output_count to 0', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'test-product-zero');
   fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
@@ -1612,7 +1621,7 @@ test('createHandoff with zero evidence outputs sets evidence_output_count to 0',
     }]
   }, null, 2));
 
-  const handoff = svc.createHandoff('test-zero', {
+  const handoff = await svc.createHandoff('test-zero', {
     run_id: 'run-zero',
     from_stage: 'implementation',
     to_stage: 'test',
