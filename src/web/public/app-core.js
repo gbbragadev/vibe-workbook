@@ -24,6 +24,8 @@
     startingSessionIds: new Set(),
     terminalWorkspaceSlots: {},
     agentFilter: '',
+    sidebarSearch: '',
+    mobileSidebarOpen: false,
     eventSource: null,
     modelsByAgent: {},
     contextMenuWorkspaceId: null,
@@ -229,6 +231,43 @@
     App.updateStats();
   }
 
+  App.getSidebarSearchTerm = function getSidebarSearchTerm() {
+    return String(state.sidebarSearch || '').trim().toLowerCase();
+  }
+
+  App.matchesSidebarSearch = function matchesSidebarSearch() {
+    var needle = App.getSidebarSearchTerm();
+    var values = Array.prototype.slice.call(arguments);
+    if (!needle) return true;
+    return values.some(function(value) {
+      return String(value || '').toLowerCase().indexOf(needle) !== -1;
+    });
+  }
+
+  App.isCompactViewport = function isCompactViewport() {
+    return window.innerWidth < 768;
+  }
+
+  App.setMobileSidebarOpen = function setMobileSidebarOpen(isOpen) {
+    state.mobileSidebarOpen = !!isOpen;
+    document.body.classList.toggle('sidebar-open', state.mobileSidebarOpen && App.isCompactViewport());
+    var toggleBtn = document.getElementById('btn-sidebar-toggle');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', state.mobileSidebarOpen ? 'true' : 'false');
+  }
+
+  App.closeMobileSidebar = function closeMobileSidebar() {
+    if (!App.isCompactViewport()) return;
+    App.setMobileSidebarOpen(false);
+  }
+
+  App.syncResponsiveChrome = function syncResponsiveChrome() {
+    if (!App.isCompactViewport()) {
+      App.setMobileSidebarOpen(false);
+      return;
+    }
+    document.body.classList.toggle('sidebar-open', state.mobileSidebarOpen);
+  }
+
   App.updateStats = function updateStats() {
     const running = state.allSessions.filter(s => s.status === 'running').length;
     const total = state.allSessions.length;
@@ -240,31 +279,51 @@
   // All dynamic content is sanitized through App.esc() which uses textContent-based escaping
   App.renderWorkspaceList = function renderWorkspaceList() {
     const container = document.getElementById('workspace-list');
+    const searchTerm = App.getSidebarSearchTerm();
     if (!state.workspaces.length) {
       container.innerHTML = '<div style="padding: 20px 14px; color: var(--text-muted); font-size: 13px; text-align: center;">No runtime workspaces yet<br><small>Click &quot;+ Workspace&quot; to create one</small></div>';
       return;
     }
 
-    container.innerHTML = state.workspaces.map(ws => {
+    const filteredWorkspaces = state.workspaces.filter(ws => {
+      if (!searchTerm) return true;
+      const wsSessions = state.allSessions.filter(s => s.workspaceId === ws.id);
+      return App.matchesSidebarSearch(
+        ws.name,
+        ws.description,
+        ws.workingDir,
+        wsSessions.map(function(s) { return [s.name, s.agent, s.status].join(' '); }).join(' ')
+      );
+    });
+
+    if (!filteredWorkspaces.length) {
+      container.innerHTML = '<div class="sidebar-empty-state"><strong>No workspace matches</strong><span>Try another term or clear search.</span></div>';
+      return;
+    }
+
+    container.innerHTML = filteredWorkspaces.map(ws => {
       const isActive = ws.id === state.activeWorkspaceId;
       const wsSessions = state.allSessions.filter(s => s.workspaceId === ws.id);
       const runningCount = wsSessions.filter(s => s.status === 'running').length;
       const agents = [...new Set(wsSessions.map(s => s.agent))];
+      const visibleSessions = searchTerm
+        ? wsSessions.filter(s => App.matchesSidebarSearch(s.name, s.agent, s.status))
+        : wsSessions;
 
       let html = '<div class="ws-item ' + (isActive ? 'active' : '') + '" data-id="' + ws.id + '" draggable="true">';
       html += '<div class="ws-item-name">';
       html += '<span class="ws-color" style="background:' + ws.color + '"></span>';
       html += App.esc(ws.name);
-      html += agents.map(a => '<span class="agent-badge ' + a + '" title="' + (AGENT_META[a] ? AGENT_META[a].name : a) + '">' + (App.AGENT_META[a] ? App.AGENT_META[a].icon : '?') + '</span>').join('');
+      html += agents.map(a => '<span class="agent-badge ' + a + '" title="' + (App.AGENT_META[a] ? App.AGENT_META[a].name : a) + '">' + (App.AGENT_META[a] ? App.AGENT_META[a].icon : '?') + '</span>').join('');
       html += '</div>';
       html += '<div class="ws-item-meta"><span>' + wsSessions.length + ' sessions</span>';
       if (runningCount) html += '<span style="color:var(--success)">' + runningCount + ' running</span>';
       html += '</div>';
 
       // Show state.sessions expanded under active runtime workspace
-      if (isActive && wsSessions.length) {
+      if (isActive && visibleSessions.length) {
         html += '<div class="ws-sessions">';
-        for (const s of wsSessions) {
+        for (const s of visibleSessions) {
           const statusClass = s.status === 'running' ? 'running' : (s.status === 'error' ? 'error' : 'stopped');
           html += '<div class="ws-session-item" data-sess-id="' + s.id + '" draggable="true">';
           html += '<span class="session-status ' + statusClass + '"></span>';
@@ -290,6 +349,7 @@
         if (e.target.closest('.ws-session-item') || e.target.closest('.ws-session-actions')) return;
         App.hideContextMenu();
         App.setActiveWorkspace(el.dataset.id);
+        App.closeMobileSidebar();
         App.renderWorkspaceList();
         App.renderCurrentView();
       });
@@ -311,6 +371,7 @@
       el.addEventListener('click', (e) => {
         if (e.target.closest('.ws-session-actions')) return;
         App.addSessionToTerminalSlots(el.dataset.sessId);
+        App.closeMobileSidebar();
         App.switchView('terminals');
       });
       el.addEventListener('dragstart', (e) => {
@@ -325,11 +386,26 @@
   App.renderSidebarProducts = function renderSidebarProducts() {
     var container = document.getElementById('sidebar-product-list');
     if (!container) return;
+    var searchTerm = App.getSidebarSearchTerm();
     if (!state.products || !state.products.length) {
       container.innerHTML = '<div style="padding:8px 14px;font-size:12px;color:var(--text-muted)">No products</div>';
       return;
     }
-    container.innerHTML = state.products.map(function(product) {
+    var visibleProducts = state.products.filter(function(product) {
+      return App.matchesSidebarSearch(
+        product.name,
+        product.summary,
+        product.category,
+        product.current_stage_id,
+        product.computed_stage_signal,
+        product.declared_stage
+      );
+    });
+    if (!visibleProducts.length) {
+      container.innerHTML = '<div class="sidebar-empty-state"><strong>No product matches</strong><span>Refine the term or clear search.</span></div>';
+      return;
+    }
+    container.innerHTML = visibleProducts.map(function(product) {
       var isActive = product.product_id === state.activeProductId;
       var productStatus = (product.pipeline || []).some(function(s) { return s.status === 'in-progress'; })
         ? 'in-progress'
@@ -344,6 +420,7 @@
     container.querySelectorAll('.sidebar-product-item').forEach(function(el) {
       el.addEventListener('click', function() {
         App.setActiveProduct(el.dataset.productId);
+        App.closeMobileSidebar();
         App.switchView('products');
       });
     });
@@ -352,6 +429,7 @@
   // ============ VIEW SWITCHING ============
   App.switchView = function switchView(view) {
     state.activeView = view;
+    App.closeMobileSidebar();
     var dd = document.getElementById('nav-more-dropdown');
     if (dd) dd.classList.add('hidden');
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -481,6 +559,7 @@
       App.setActiveWorkspace(product.workspace.runtime_workspace_id);
       App.renderWorkspaceList();
     }
+    App.closeMobileSidebar();
     App.renderCurrentView();
   }
 
@@ -2818,6 +2897,11 @@
     var overviewEl = document.getElementById('ideas-overview');
     var detailEl = document.getElementById('idea-detail');
     var discBarEl = document.getElementById('ideas-discovery-bar');
+    var ideasPageEl = document.querySelector('#view-ideas .ideas-page');
+
+    if (state.activeIdeaId && !state.ideas.find(function(idea) { return idea.id === state.activeIdeaId; })) {
+      state.activeIdeaId = null;
+    }
 
     summaryEl.textContent = state.ideas.length + ' idea' + (state.ideas.length !== 1 ? 's' : '');
 
@@ -2845,7 +2929,8 @@
     }
 
     if (!state.ideas.length) {
-      overviewEl.innerHTML = '<div class="empty-state"><h3>No ideas yet</h3><p>Use discovery to find product opportunities from Reddit, DuckDuckGo and more, or add ideas manually.</p><button class="btn btn-primary" onclick="App.startIdeaDiscovery()">Start Discovery</button></div>';
+      if (ideasPageEl) ideasPageEl.classList.add('ideas-page-single');
+      overviewEl.innerHTML = '<div class="empty-state empty-state-guided"><h3>No ideas yet</h3><p>Start with discovery to surface real demand signals, or add one idea manually to review it here.</p><button class="btn btn-primary" onclick="App.startIdeaDiscovery()">Start Discovery</button></div>';
       detailEl.innerHTML = '';
       return;
     }
@@ -2883,9 +2968,11 @@
 
     // Render detail
     if (state.activeIdeaId) {
+      if (ideasPageEl) ideasPageEl.classList.remove('ideas-page-single');
       App.renderIdeaDetail(detailEl);
     } else {
-      detailEl.innerHTML = '<div class="empty-panel"><h3>Select an idea</h3><p>Click on an idea card to see details, signals, and scoring.</p></div>';
+      if (ideasPageEl) ideasPageEl.classList.add('ideas-page-single');
+      detailEl.innerHTML = '<div class="empty-panel empty-panel-guided"><h3>Pick one idea to evaluate</h3><p class="empty-subtext">Use the list to compare demand, then open one item to review signals, score breakdown and the next decision.</p></div>';
     }
   }
 
@@ -2986,8 +3073,8 @@
       '<div style="margin-bottom:8px;font-size:13px">Enter a search query to discover product/automation opportunities from Reddit, DuckDuckGo, and X.</div>' +
       '<input type="text" id="discovery-query" placeholder="e.g. automation, dashboard, workflow" style="width:100%;padding:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px" value="automation">',
       [
-        { label: 'Cancel' },
-        { label: 'Discover', primary: true, action: async function() {
+        { label: 'Cancel', onClick: function() {} },
+        { label: 'Discover', primary: true, onClick: async function() {
           var query = document.getElementById('discovery-query').value.trim() || 'automation';
           state.discoveryStatus = { status: 'running', progress: { total: 4, completed: 0, signals: 0 } };
           App.renderIdeasView();
@@ -3010,8 +3097,8 @@
       '<label style="font-size:12px;display:block;margin-bottom:4px">Problem</label>' +
       '<textarea id="new-idea-problem" rows="3" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px;resize:vertical"></textarea>',
       [
-        { label: 'Cancel' },
-        { label: 'Create', primary: true, action: async function() {
+        { label: 'Cancel', onClick: function() {} },
+        { label: 'Create', primary: true, onClick: async function() {
           var title = document.getElementById('new-idea-title').value.trim();
           var problem = document.getElementById('new-idea-problem').value.trim();
           if (!title) return;
@@ -3055,8 +3142,8 @@
       '<label style="font-size:12px;display:block;margin-bottom:4px">Owner</label>' +
       '<input type="text" id="convert-owner" value="idea-discovery" style="width:100%;padding:6px 8px;margin-bottom:8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px">',
       [
-        { label: 'Cancel' },
-        { label: 'Convert', primary: true, action: async function() {
+        { label: 'Cancel', onClick: function() {} },
+        { label: 'Convert', primary: true, onClick: async function() {
           var name = document.getElementById('convert-name').value.trim();
           var owner = document.getElementById('convert-owner').value.trim();
           if (!name) return;
@@ -3133,12 +3220,13 @@
     var actionsEl = document.getElementById('dialog-actions');
     actionsEl.innerHTML = '';
     actions.forEach(function(action) {
+      var handler = action.onClick || action.action || function() {};
       var btn = document.createElement('button');
       btn.className = 'btn ' + (action.primary ? 'btn-primary' : '');
       btn.textContent = action.label;
       btn.addEventListener('click', function() {
         App.hideDialog();
-        action.onClick();
+        handler();
       });
       actionsEl.appendChild(btn);
     });
@@ -3659,18 +3747,16 @@
     var searchTimeout;
     document.getElementById('search-input').addEventListener('input', function(e) {
       clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(async function() {
-        var q = e.target.value.trim();
-        if (q) {
-          try { state.allSessions = await App.api('/search?q=' + encodeURIComponent(q)); } catch (ex) { state.allSessions = []; }
-          state.sessions = state.allSessions;
-        } else {
-          await App.loadAllSessions();
-        }
+      searchTimeout = setTimeout(function() {
+        state.sidebarSearch = e.target.value.trim();
         App.renderWorkspaceList();
-        App.renderCurrentView();
+        App.renderSidebarProducts();
       }, 300);
     });
+    document.getElementById('btn-sidebar-toggle').addEventListener('click', function() {
+      App.setMobileSidebarOpen(!state.mobileSidebarOpen);
+    });
+    window.addEventListener('resize', App.syncResponsiveChrome);
 
     document.getElementById('dialog-overlay').addEventListener('click', function(e) {
       if (e.target === document.getElementById('dialog-overlay')) App.hideDialog();
@@ -3699,6 +3785,7 @@
     };
 
     App.updateViewButtons();
+    App.syncResponsiveChrome();
 
     if (state.token) {
       App.api('/health').then(function() {
