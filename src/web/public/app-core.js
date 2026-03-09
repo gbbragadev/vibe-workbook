@@ -706,11 +706,17 @@
       return '<div class="readiness-check ' + (s.met ? 'met' : 'unmet') + '">' +
         (s.met ? '&#10003;' : '&#10007;') + ' ' + App.esc(s.label) + '</div>';
     }).join('');
+    var earlyStages = ['idea', 'brief', 'spec'];
+    var currentStage = ((detail.product || {}).stage || '').toLowerCase();
+    var earlyStageHint = earlyStages.indexOf(currentStage) >= 0
+      ? '<div class="readiness-hint" style="padding:8px 16px;font-size:0.85em;opacity:0.7">Readiness se constr\u00f3i conforme os est\u00e1gios avan\u00e7am. Complete os est\u00e1gios para acumular evid\u00eancia.</div>'
+      : '';
+
     return '<section class="detail-panel"><div class="panel-header"><h3>Readiness</h3></div>' +
       '<div class="readiness-compact-body">' +
       '<div class="traffic-light-large traffic-light-' + App.esc(light) + '"></div>' +
       '<div class="readiness-checklist">' + checklistHtml + '</div>' +
-      '</div></section>';
+      '</div>' + earlyStageHint + '</section>';
   }
 
   App.deriveReadinessDisplay = function deriveReadinessDisplay(readiness) {
@@ -1127,10 +1133,16 @@
 
     var riskClass = riskLevel === 'low' || riskLevel === 'success' ? 'tone-success' : (riskLevel === 'medium' || riskLevel === 'warning' ? 'tone-warning' : 'tone-danger');
 
+    // Path warning for products with invalid repo path
+    var pathStatus = ((detail.product || {}).workspace || {}).path_status || '';
+    var pathWarningHtml = pathStatus === 'invalid'
+      ? '<div class="copilot-blockers"><div class="copilot-blocker-item">&#9888; Diret\u00f3rio do produto n\u00e3o encontrado. Atualize o caminho do reposit\u00f3rio para ativar detec\u00e7\u00e3o de artefatos.</div></div>'
+      : '';
+
     // Blockers section
-    var blockersHtml = blockers.length
+    var blockersHtml = pathWarningHtml + (blockers.length
       ? '<div class="copilot-blockers">' + blockers.map(function(b) { return '<div class="copilot-blocker-item">&#10007; ' + App.esc(typeof b === 'string' ? b : b.label || '') + '</div>'; }).join('') + '</div>'
-      : '<div class="copilot-blockers"><div class="copilot-no-blockers">&#10003; No blockers</div></div>';
+      : '<div class="copilot-blockers"><div class="copilot-no-blockers">&#10003; No blockers</div></div>');
 
     // Done section (compact, max 5)
     var doneHtml = doneItems.length
