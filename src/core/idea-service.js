@@ -123,6 +123,35 @@ class IdeaService {
     this._write(data);
   }
 
+  getAllSignalFingerprints() {
+    const ideas = this._read().ideas;
+    const fps = new Set();
+    for (const idea of ideas) {
+      for (const sig of (idea.signals || [])) {
+        if (sig.fingerprint) fps.add(sig.fingerprint);
+      }
+    }
+    return fps;
+  }
+
+  findSimilarIdea(candidateTitle, candidateKeywords) {
+    const ideas = this._read().ideas;
+    const normCandidate = (candidateTitle || '').toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    const kwSet = new Set(candidateKeywords || []);
+
+    for (const idea of ideas) {
+      const normTitle = (idea.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, '');
+      if (normTitle && normCandidate && (normTitle.includes(normCandidate.slice(0, 30)) || normCandidate.includes(normTitle.slice(0, 30)))) {
+        return idea;
+      }
+      const ideaKws = new Set([...(idea.tags || []), ...(idea.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 2)]);
+      const intersection = [...kwSet].filter(k => ideaKws.has(k)).length;
+      const union = new Set([...kwSet, ...ideaKws]).size;
+      if (union > 0 && intersection / union > 0.35) return idea;
+    }
+    return null;
+  }
+
   addSignals(id, signals) {
     const data = this._read();
     const idea = data.ideas.find(i => i.id === id);
@@ -175,20 +204,8 @@ class IdeaService {
   }
 
   clusterIdeas() {
-    const ideas = this._read().ideas;
-    const groups = {};
-
-    for (const idea of ideas) {
-      const label = idea.opportunityType || 'other';
-      if (!groups[label]) groups[label] = [];
-      groups[label].push(idea);
-    }
-
-    return Object.keys(groups).map(label => ({
-      label,
-      ideas: groups[label],
-      count: groups[label].length
-    }));
+    const { clusterIdeas: cluster } = require('./idea-cluster');
+    return cluster(this._read().ideas);
   }
 
   static calculateScore(idea) {
@@ -200,7 +217,12 @@ class IdeaService {
       weightedSum += val * weight;
       totalWeight += weight;
     }
-    const score = totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : 0;
+    const rawScore = totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : 0;
+
+    // Apply noise penalty
+    const noiseLevel = idea.noiseLevel || 0;
+    const noisePenalty = noiseLevel >= 8 ? 0.6 : noiseLevel >= 5 ? 0.8 : noiseLevel >= 3 ? 0.9 : 1.0;
+    const score = Math.round(rawScore * noisePenalty * 10) / 10;
 
     const signals = idea.signals || [];
     const signalFactor = Math.min(1.0, signals.length / 5);
