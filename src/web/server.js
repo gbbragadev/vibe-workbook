@@ -174,9 +174,9 @@ function createServer() {
   });
 
   app.post('/api/workspaces', (req, res) => {
-    const { name, description, color, agents } = req.body;
+    const { name, description, color, agents, workingDir } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
-    const ws = store.createWorkspace({ name, description, color, agents });
+    const ws = store.createWorkspace({ name, description, color, agents, workingDir });
     res.status(201).json(ws);
   });
 

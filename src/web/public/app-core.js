@@ -1634,7 +1634,7 @@
     })) + '"' + ((defaultPreset && item.preset_id === defaultPreset.preset_id && item.preset_type === defaultPreset.preset_type && item.knowledge_pack_id === defaultPreset.knowledge_pack_id) || (!defaultPreset && index === 0) ? ' selected' : '') + '>' + App.esc((item.knowledge_pack_name || item.knowledge_pack_id || 'Knowledge Pack') + ' - ' + item.preset_label) + '</option>').join('');
     App.showDialog('Start ' + stage.label, '<div id="dlg-stage-error" class="dialog-error-msg" style="display:none"></div><label>Stage</label><input type="text" value="' + App.esc(stage.label) + '" disabled><label>Recommended Role</label><input type="text" value="' + App.esc(stage.recommended_role) + '" disabled>' + knowledgeBlock + handoffBlock + (uniqueStagePresets.length > 1 ? '<label>Execution Preset</label><select id="dlg-stage-preset">' + presetOptions + '</select>' : '') + '<label>Session Name</label><input type="text" id="dlg-stage-name" value="' + App.esc(defaultName) + '"><label>Runtime Agent</label><select id="dlg-stage-agent">' + App.buildAgentOptions(defaultAgent, stage.allowed_runtime_agents) + '</select><label>Model</label><select id="dlg-stage-model">' + App.buildModelOptionsFor(defaultAgent) + '</select><div id="dlg-stage-effort-wrap"><label>Effort</label><select id="dlg-stage-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div><label>Working Directory</label><input type="text" id="dlg-stage-dir" value="' + App.esc(workingDir) + '"><label>Goal</label><textarea disabled>' + App.esc(stage.goal) + '</textarea>', [
       { label: 'Cancel', onClick: function() {} },
-      { label: 'Create Session', primary: true, onClick: async function() {
+      { label: 'Create Session', primary: true, closeOnSuccess: false, onClick: async function() {
         var errorEl = document.getElementById('dlg-stage-error');
         if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
         const presetSelect = document.getElementById('dlg-stage-preset');
@@ -1647,7 +1647,7 @@
           }
         }
         try {
-          await App.api('/products/' + encodeURIComponent(productId) + '/stages/' + encodeURIComponent(stageId) + '/start', {
+          const result = await App.api('/products/' + encodeURIComponent(productId) + '/stages/' + encodeURIComponent(stageId) + '/start', {
             method: 'POST',
             body: JSON.stringify({
               name: document.getElementById('dlg-stage-name').value.trim() || defaultName,
@@ -1666,11 +1666,16 @@
           });
           await App.loadAllSessions();
           await App.loadProducts(true);
+          await App.loadProductDetail(productId, true);
+          App.hideDialog();
           App.renderWorkspaceList();
-          App.renderCurrentView();
+          if (result && result.session && result.session.id) {
+            App.openSessionInTerminals(result.session.id, productId);
+          } else {
+            App.renderCurrentView();
+          }
         } catch (err) {
           if (errorEl) { errorEl.textContent = err.message; errorEl.style.display = 'block'; }
-          throw err;
         }
       }}
     ]);
@@ -1728,10 +1733,10 @@
       }
       return;
     } catch (e) {
-      console.warn('Next action execution failed, falling back to guided stage:', e);
+      console.error('Next action execution failed:', e);
+      alert(e.message || 'Failed to create the guided session.');
+      return;
     }
-
-    await App.startGuidedStage(productId, stageId);
   }
 
   App.discardRun = async function discardRun(productId, runId) {
@@ -3246,8 +3251,9 @@
       btn.addEventListener('click', async function() {
         try {
           await handler();
-          App.hideDialog();
+          if (action.closeOnSuccess !== false) App.hideDialog();
         } catch (e) {
+          if (typeof action.onError === 'function') action.onError(e);
           console.warn('Dialog action error:', e.message);
         }
       });
@@ -3434,7 +3440,7 @@
     }
   }
 
-  App.newSession = function newSession() {
+  App.newSession = function newSession(draft) {
     if (!state.activeWorkspaceId) {
       App.showDialog('Select a Runtime Workspace', '<p style="font-size:13px">Please select a runtime workspace first.</p>', [
         { label: 'OK', primary: true, onClick: function() {} }
@@ -3443,37 +3449,67 @@
     }
 
     var ws = state.workspaces.find(function(w) { return w.id === state.activeWorkspaceId; });
-    var defaultAgent = 'claude';
+    var defaultAgent = (draft && draft.agent) || 'claude';
 
-    function buildModelOptions(agent) {
+    function buildModelOptions(agent, selectedModel) {
       var models = App.getAgentCatalog(agent).models || [];
       if (!models.length) return '<option value="">Default</option>';
-      return models.map(function(m, i) { return '<option value="' + m.id + '"' + (i === 0 ? ' selected' : '') + '>' + App.esc(m.name) + '</option>'; }).join('');
+      return models.map(function(m, i) {
+        var isSelected = selectedModel ? selectedModel === m.id : i === 0;
+        return '<option value="' + m.id + '"' + (isSelected ? ' selected' : '') + '>' + App.esc(m.name) + '</option>';
+      }).join('');
     }
 
-    var wsDir = (ws && ws.workingDir) ? ws.workingDir : '';
+    var wsDir = (draft && draft.workingDir !== undefined)
+      ? draft.workingDir
+      : ((ws && ws.workingDir) ? ws.workingDir : '');
+    var initialError = (draft && draft.error) ? draft.error : '';
 
-    App.showDialog('New Session', '<label>Session Name</label><input type="text" id="dlg-sess-name" placeholder="Feature X"><label>Agent</label><select id="dlg-sess-agent"><option value="claude">Claude Code</option><option value="codex">Codex CLI</option><option value="gemini">Gemini CLI</option></select><label>Model</label><select id="dlg-sess-model">' + buildModelOptions(defaultAgent) + '</select><div id="dlg-sess-effort-wrap"><label>Effort</label><select id="dlg-sess-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div><label>Working Directory</label><div style="display:flex;gap:6px"><input type="text" id="dlg-sess-dir" placeholder="' + (wsDir || 'Inherits from runtime workspace') + '" value="' + wsDir + '" style="flex:1"><button class="btn btn-sm" id="dlg-sess-browse" type="button">&#128193;</button></div><label>Resume Session ID (Claude only)</label><input type="text" id="dlg-sess-resume" placeholder="Optional: paste session UUID">', [
+    App.showDialog('New Session', '<div id="dlg-sess-error" class="dialog-error-msg"' + (initialError ? '' : ' style="display:none"') + '>' + App.esc(initialError) + '</div><label>Session Name</label><input type="text" id="dlg-sess-name" placeholder="Feature X" value="' + App.esc((draft && draft.name) || '') + '"><label>Agent</label><select id="dlg-sess-agent"><option value="claude"' + (defaultAgent === 'claude' ? ' selected' : '') + '>Claude Code</option><option value="codex"' + (defaultAgent === 'codex' ? ' selected' : '') + '>Codex CLI</option><option value="gemini"' + (defaultAgent === 'gemini' ? ' selected' : '') + '>Gemini CLI</option></select><label>Model</label><select id="dlg-sess-model">' + buildModelOptions(defaultAgent, (draft && draft.model) || '') + '</select><div id="dlg-sess-effort-wrap"><label>Effort</label><select id="dlg-sess-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div><label>Working Directory</label><div style="display:flex;gap:6px"><input type="text" id="dlg-sess-dir" placeholder="' + (wsDir || 'Inherits from runtime workspace') + '" value="' + App.esc(wsDir) + '" style="flex:1"><button class="btn btn-sm" id="dlg-sess-browse" type="button">&#128193;</button></div><label>Resume Session ID (Claude only)</label><input type="text" id="dlg-sess-resume" placeholder="Optional: paste session UUID" value="' + App.esc((draft && draft.resumeSessionId) || '') + '">', [
       { label: 'Cancel', onClick: function() {} },
-      { label: 'Create', primary: true, onClick: async function() {
+      { label: 'Create', primary: true, closeOnSuccess: false, onClick: async function() {
+        var errorEl = document.getElementById('dlg-sess-error');
+        if (errorEl) {
+          errorEl.style.display = 'none';
+          errorEl.textContent = '';
+        }
         var name = document.getElementById('dlg-sess-name').value.trim();
-        if (!name) return;
-        await App.api('/sessions', {
+        if (!name) {
+          if (errorEl) {
+            errorEl.textContent = 'Session name is required.';
+            errorEl.style.display = 'block';
+          }
+          return;
+        }
+        var created = await App.api('/sessions', {
           method: 'POST',
           body: JSON.stringify({
             name: name,
             workspaceId: state.activeWorkspaceId,
             agent: document.getElementById('dlg-sess-agent').value,
-            workingDir: document.getElementById('dlg-sess-dir').value,
+            workingDir: document.getElementById('dlg-sess-dir').value.trim(),
             model: document.getElementById('dlg-sess-model').value,
             effort: document.getElementById('dlg-sess-effort').value,
-            resumeSessionId: document.getElementById('dlg-sess-resume').value
+            resumeSessionId: document.getElementById('dlg-sess-resume').value.trim()
           })
         });
+        if (!created || !created.id) throw new Error('Session was not created.');
         await App.loadAllSessions();
         await App.loadProducts(true);
+        var persisted = state.allSessions.find(function(session) { return session.id === created.id; });
+        if (!persisted) throw new Error('Session was created but did not refresh in the UI.');
+        App.setActiveWorkspace(persisted.workspaceId || state.activeWorkspaceId);
+        App.addSessionToTerminalSlots(persisted.id);
+        App.hideDialog();
         App.renderWorkspaceList();
+        App.switchView('terminals');
         App.renderCurrentView();
+      }, onError: function(error) {
+        var errorEl = document.getElementById('dlg-sess-error');
+        if (errorEl) {
+          errorEl.textContent = error.message || 'Failed to create session.';
+          errorEl.style.display = 'block';
+        }
       }}
     ]);
 
@@ -3491,57 +3527,28 @@
       var browseBtn = document.getElementById('dlg-sess-browse');
       if (browseBtn) {
         browseBtn.addEventListener('click', async function() {
-          var currentDir = document.getElementById('dlg-sess-dir').value || wsDir || 'C:\\Users';
           try {
+            var nextDraft = {
+              name: document.getElementById('dlg-sess-name').value.trim(),
+              agent: document.getElementById('dlg-sess-agent').value,
+              model: document.getElementById('dlg-sess-model').value,
+              workingDir: document.getElementById('dlg-sess-dir').value,
+              resumeSessionId: document.getElementById('dlg-sess-resume').value.trim(),
+              error: document.getElementById('dlg-sess-error').textContent || ''
+            };
+            var currentDir = nextDraft.workingDir || wsDir || 'C:\\Users';
             var browseData = await App.api('/browse?path=' + encodeURIComponent(currentDir));
-            var origTitle = document.getElementById('dialog-title').textContent;
-            var origBody = document.getElementById('dialog-body').innerHTML;
-
             App.showDirBrowser(browseData, function(selectedPath) {
-              document.getElementById('dialog-title').textContent = origTitle;
-              document.getElementById('dialog-body').innerHTML = origBody;
-              document.getElementById('dlg-sess-dir').value = selectedPath;
-              // Re-bind agent/model change
-              var as = document.getElementById('dlg-sess-agent');
-              var ms = document.getElementById('dlg-sess-model');
-              if (as && ms) {
-                as.addEventListener('change', function() { ms.innerHTML = buildModelOptions(as.value); });
-              }
-              // Re-bind actions
-              var actionsEl = document.getElementById('dialog-actions');
-              actionsEl.innerHTML = '';
-              var cancelBtn = document.createElement('button');
-              cancelBtn.className = 'btn';
-              cancelBtn.textContent = 'Cancel';
-              cancelBtn.addEventListener('click', App.hideDialog);
-              var createBtn = document.createElement('button');
-              createBtn.className = 'btn btn-primary';
-              createBtn.textContent = 'Create';
-              createBtn.addEventListener('click', async function() {
-                App.hideDialog();
-                var n = document.getElementById('dlg-sess-name').value.trim();
-                if (!n) return;
-                await App.api('/sessions', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    name: n,
-                    workspaceId: state.activeWorkspaceId,
-                    agent: document.getElementById('dlg-sess-agent').value,
-                    workingDir: document.getElementById('dlg-sess-dir').value,
-                    model: document.getElementById('dlg-sess-model').value,
-                    effort: document.getElementById('dlg-sess-effort').value,
-                    resumeSessionId: document.getElementById('dlg-sess-resume').value
-                  })
-                });
-                await App.loadAllSessions();
-                await App.loadProducts(true);
-                App.renderWorkspaceList();
-                App.renderCurrentView();
-              });
-              actionsEl.appendChild(cancelBtn);
-              actionsEl.appendChild(createBtn);
+              nextDraft.workingDir = selectedPath;
+              App.newSession(nextDraft);
             });
-          } catch (e) { console.error(e); }
+          } catch (e) {
+            var errorEl = document.getElementById('dlg-sess-error');
+            if (errorEl) {
+              errorEl.textContent = e.message || 'Failed to browse directories.';
+              errorEl.style.display = 'block';
+            }
+          }
         });
       }
     }, 50);
@@ -3576,6 +3583,7 @@
     } catch (e) {
       state.startingSessionIds.delete(id);
       console.error('Failed to start session:', e);
+      alert(e.message || 'Failed to start session.');
     }
   }
 
@@ -3603,6 +3611,7 @@
     } catch (e) {
       state.startingSessionIds.delete(id);
       console.error('Failed to restart session:', e);
+      alert(e.message || 'Failed to restart session.');
     }
   }
 
