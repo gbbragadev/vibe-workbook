@@ -211,7 +211,12 @@ class IdeaService {
       weightedSum += val * weight;
       totalWeight += weight;
     }
-    const score = totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : 0;
+    const rawScore = totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : 0;
+
+    // Apply noise penalty
+    const noiseLevel = idea.noiseLevel || 0;
+    const noisePenalty = noiseLevel >= 8 ? 0.6 : noiseLevel >= 5 ? 0.8 : noiseLevel >= 3 ? 0.9 : 1.0;
+    const score = Math.round(rawScore * noisePenalty * 10) / 10;
 
     const signals = idea.signals || [];
     const signalFactor = Math.min(1.0, signals.length / 5);

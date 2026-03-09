@@ -177,21 +177,37 @@ class IdeaDiscoveryService {
 
   _estimateDimensions(signals) {
     const avgEng = signals.reduce((s, x) => s + (x.engagement?.score || 0), 0) / signals.length;
+    const avgComments = signals.reduce((s, x) => s + (x.engagement?.comments || 0), 0) / signals.length;
     const hasPain = signals.filter(s => s.extractedPain).length;
     const hasUseCase = signals.filter(s => s.extractedUseCase).length;
     const hasWorkaround = signals.filter(s =>
-      (s.rawText || '').toLowerCase().includes('workaround') ||
-      (s.rawText || '').toLowerCase().includes('currently') ||
-      (s.rawText || '').toLowerCase().includes('spreadsheet')
+      /workaround|currently using|spreadsheet|manually/.test((s.rawText || '').toLowerCase())
     ).length;
+    const sourceTypes = new Set(signals.map(s => s.sourceType).filter(Boolean));
+    const isCrossPlatform = sourceTypes.size > 1;
+
+    // nichePotential: base 3 + bonuses
+    let nichePotential = 3;
+    if (isCrossPlatform) nichePotential += 2;
+    if (signals.length >= 3) nichePotential += 1;
+    if (signals.length >= 5) nichePotential += 1;
+    if (avgComments > 10) nichePotential += 1;
+    if (avgComments > 30) nichePotential += 1;
+
+    // productFit: base 2 + bonuses
+    let productFit = 2;
+    if (hasUseCase > 0) productFit += 3;
+    if (hasWorkaround > 0) productFit += 2;
+    if (hasPain / signals.length > 0.5) productFit += 2;
+    if (isCrossPlatform) productFit += 1;
 
     return {
       painFrequency: Math.min(10, Math.round(signals.length * 2)),
       painIntensity: Math.min(10, Math.round((hasPain / signals.length) * 8 + (avgEng > 50 ? 2 : 0))),
       useCaseClarity: Math.min(10, Math.round((hasUseCase / signals.length) * 10)),
       workaroundPresence: Math.min(10, Math.round((hasWorkaround / signals.length) * 10)),
-      nichePotential: Math.min(10, Math.round(5 + (signals.length > 2 ? 2 : 0))),
-      productFit: 5
+      nichePotential: Math.min(10, nichePotential),
+      productFit: Math.min(10, productFit)
     };
   }
 }
