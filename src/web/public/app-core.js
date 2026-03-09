@@ -1221,7 +1221,8 @@
     const knowledgeBody = App.buildKnowledgePackPanel(detail) + '<div style="margin-top:14px">' + App.buildStageKnowledgePanel(detail) + '</div>';
     const technicalBody = App.buildHandoffHistoryPanel(detail);
     const sessionsBody = '<div class="session-list">' + ((detail.related_sessions || []).map(session => App.buildProductSessionRow(session)).join('') || '<p>No linked sessions yet.</p>') + '</div>';
-    return '<div class="product-detail-header"><div class="product-row"><div><h2>' + App.esc(detail.name) + '</h2><div class="product-subtitle">' + App.esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + App.esc(detail.category) + '</span><span class="chip subtle">stage: ' + App.esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + App.buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
+    var trafficLight = (detail.readiness || {}).traffic_light || 'red';
+    return '<div class="product-detail-header"><div class="product-row"><div><h2>' + App.esc(detail.name) + ' <span class="traffic-light traffic-light-' + App.esc(trafficLight) + '"></span></h2><div class="product-subtitle">' + App.esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + App.esc(detail.category) + '</span><span class="chip subtle">stage: ' + App.esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + App.buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
       '<button class="btn btn-sm" data-product-action="change-workspace">Change Runtime Workspace</button>' +
       '</div></div><div class="product-detail-scroll">' +
@@ -1231,7 +1232,7 @@
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Current Run', App.esc(currentRun ? (currentRun.status || 'active') : 'no active run'), App.buildCurrentRunPanel(detail, currentRun), false) +
       App.buildCollapsiblePanel('Next Actions', ((detail.next_actions || []).length) + ' suggested', '<div class="next-actions-list">' + ((detail.next_actions || []).map(function(action) { return App.buildNextActionRow(action, detail); }).join('') || '<p>No next actions available.</p>') + '</div>', false) + '</div>' +
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Pipeline', detail.pipeline.length + ' stages', pipelineBody, false) +
-      '<section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta">collapsed by default</span></div><div class="panel-body"><div class="detail-grid"><div>' + App.buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + App.buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section></div>' +
+      '<section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta"></span></div><div class="panel-body"><div class="detail-grid"><div>' + App.buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + App.buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section></div>' +
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Knowledge Packs & Guidance', ((detail.knowledge_packs || []).length) + ' active', knowledgeBody, false) +
       App.buildOperateLitePanel(detail) + '</div>' +
       '</div></div>';
@@ -1452,12 +1453,29 @@
   }
 
   App.openSessionInTerminals = function openSessionInTerminals(sessionId, productId) {
+    if (state.activeView === 'products') {
+      App.openProductTerminal(sessionId);
+      return;
+    }
     const product = state.products.find(p => p.product_id === productId);
     if (product && product.workspace && product.workspace.runtime_workspace_id) App.setActiveWorkspace(product.workspace.runtime_workspace_id);
     const session = state.allSessions.find(s => s.id === sessionId);
     if (session && session.workspaceId) App.setActiveWorkspace(session.workspaceId);
     App.renderWorkspaceList();
     App.switchView('terminals');
+  }
+
+  App.openProductTerminal = function openProductTerminal(sessionId) {
+    var container = document.getElementById('product-terminal');
+    if (!container) return;
+    container.classList.remove('hidden');
+    container.innerHTML = '<button class="terminal-close-btn" id="close-product-terminal">Close</button><div id="product-terminal-body" style="height:100%;width:100%"></div>';
+    var bodyEl = document.getElementById('product-terminal-body');
+    App.createTerminal(sessionId, bodyEl);
+    document.getElementById('close-product-terminal').addEventListener('click', function() {
+      container.classList.add('hidden');
+      container.innerHTML = '';
+    });
   }
 
   App.buildAgentOptions = function buildAgentOptions(defaultAgent, allowedAgents) {
@@ -1790,7 +1808,9 @@
           '<label>Category</label><select id="dlg-product-category"><option value="product"' + (draft.category === 'product' ? ' selected' : '') + '>product</option><option value="internal-tool"' + (draft.category === 'internal-tool' ? ' selected' : '') + '>internal-tool</option><option value="experiment"' + (draft.category === 'experiment' ? ' selected' : '') + '>experiment</option></select>' +
           '<label>Initial Stage</label><select id="dlg-product-stage">' + App.STAGE_ORDER.filter(item => item !== 'test' && item !== 'release').map(item => '<option value="' + item + '"' + (draft.stage === item ? ' selected' : '') + '>' + App.esc(item) + '</option>').join('') + '</select>' +
           '<label>Summary</label><textarea id="dlg-product-summary" placeholder="Short product summary.">' + App.esc(draft.summary) + '</textarea>' +
-          '<p class="wizard-help">Create the delivery unit first. Runtime workspace and scaffold stay optional in the next step.</p>';
+          '<p class="wizard-help">Create the delivery unit first. Runtime workspace and scaffold stay optional in the next step.</p>' +
+          '<div class="wizard-divider">or</div>' +
+          '<button type="button" class="btn btn-sm" id="btn-start-from-idea">Start from approved idea</button>';
 
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'btn';
@@ -1830,6 +1850,34 @@
         idInput.addEventListener('input', () => { draft.auto_slug = false; });
         slugInput.addEventListener('input', () => { draft.auto_slug = false; });
         nameInput.addEventListener('input', syncIds);
+
+        var startFromIdeaBtn = document.getElementById('btn-start-from-idea');
+        if (startFromIdeaBtn) {
+          startFromIdeaBtn.addEventListener('click', async function() {
+            try {
+              var ideas = await App.api('/ideas?status=approved');
+              if (!ideas || !ideas.length) {
+                alert('No approved ideas available. Approve ideas first in the Ideas view.');
+                return;
+              }
+              var listHtml = ideas.map(function(idea) {
+                return '<div class="idea-card" data-idea-id="' + App.esc(idea.id) + '" style="cursor:pointer;margin-bottom:8px"><div class="idea-card-name">' + App.esc(idea.title) + '</div><div class="idea-card-summary">' + App.esc(idea.summary || idea.problem || '') + '</div></div>';
+              }).join('');
+              body.innerHTML = '<h4>Select an approved idea</h4>' + listHtml;
+              body.querySelectorAll('.idea-card').forEach(function(card) {
+                card.addEventListener('click', async function() {
+                  try {
+                    var result = await App.api('/ideas/' + encodeURIComponent(card.dataset.ideaId) + '/convert', { method: 'POST' });
+                    App.hideDialog();
+                    await App.loadProducts(true);
+                    if (result && result.product_id) App.setActiveProduct(result.product_id);
+                    App.renderCurrentView();
+                  } catch(e) { alert('Conversion failed: ' + e.message); }
+                });
+              });
+            } catch(e) { alert('Failed to load ideas: ' + e.message); }
+          });
+        }
       } else {
         const workspaceOptions = ['<option value="">Select runtime workspace</option>']
           .concat(state.workspaces.map(ws => '<option value="' + ws.id + '"' + (ws.id === draft.workspace_id ? ' selected' : '') + '>' + App.esc(ws.name) + ' - ' + App.esc(ws.workingDir || 'no working dir') + '</option>'))

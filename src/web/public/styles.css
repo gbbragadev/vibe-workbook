@@ -1871,3 +1871,15 @@ body {
   font-size: 13px;
   color: var(--success);
 }
+
+/* Product terminal panel */
+.product-terminal-panel { border-top: 1px solid var(--border); height: 350px; min-height: 200px; background: var(--bg-primary); position: relative; }
+.product-terminal-panel.hidden { display: none; }
+.terminal-close-btn { position: absolute; top: 8px; right: 8px; z-index: 2; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius); padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.terminal-close-btn:hover { background: var(--bg-tertiary); }
+
+/* Wizard divider */
+.wizard-divider { text-align: center; margin: 12px 0; color: var(--text-secondary); font-size: 13px; position: relative; }
+.wizard-divider::before, .wizard-divider::after { content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: var(--border); }
+.wizard-divider::before { left: 0; }
+.wizard-divider::after { right: 0; }
