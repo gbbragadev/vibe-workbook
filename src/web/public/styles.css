@@ -396,6 +396,11 @@ body {
 .empty-state-icon { font-size: 48px; opacity: 0.3; }
 .empty-state-text { font-size: 14px; }
 
+/* Educational empty states */
+.empty-state h3 { color: var(--text-primary); margin-bottom: 8px; }
+.empty-state p { margin-bottom: 16px; font-size: 14px; }
+.empty-state-inline { padding: 16px; color: var(--text-secondary); font-size: 13px; }
+
 /* Cost Dashboard */
 .cost-header { padding: 16px; border-bottom: 1px solid var(--border); }
 .cost-header h2 { font-size: 18px; }
@@ -1185,6 +1190,19 @@ body {
 .copilot-primary-btn.tone-warning { background: var(--warning); border-color: var(--warning); color: #000; }
 .copilot-primary-btn.tone-success { background: var(--success); border-color: var(--success); }
 
+/* Copilot operational format */
+.copilot-blockers { padding: 8px 16px; display: flex; flex-direction: column; gap: 4px; }
+.copilot-blocker-item { font-size: 13px; display: flex; align-items: center; gap: 6px; color: var(--warning); }
+.copilot-no-blockers { font-size: 13px; color: var(--success); display: flex; align-items: center; gap: 6px; }
+.copilot-ops-section { padding: 12px 16px; }
+.copilot-reason-short { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+.copilot-evidence-short { font-size: 13px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 4px; }
+.copilot-risk-inline { font-size: 12px; padding: 4px 8px; border-radius: var(--radius); display: inline-block; margin-top: 6px; }
+.copilot-risk-inline.tone-warning { background: rgba(var(--warning-rgb, 255,170,0), 0.15); color: var(--warning); }
+.copilot-risk-inline.tone-danger { background: rgba(var(--danger-rgb, 255,85,85), 0.15); color: var(--danger); }
+.copilot-done-compact { padding: 8px 16px; border-top: 1px solid var(--border); }
+.copilot-done-compact .copilot-done-row { padding: 3px 0; }
+
 .pipeline-list,
 .artifact-list,
 .next-actions-list,
@@ -1500,6 +1518,22 @@ body {
 .readiness-signal-row.unmet {
   color: var(--warning);
 }
+
+/* Traffic light readiness */
+.traffic-light-large {
+  width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
+}
+.traffic-light {
+  width: 12px; height: 12px; border-radius: 50%; display: inline-block; vertical-align: middle;
+}
+.traffic-light-green, .traffic-light-large.traffic-light-green { background: var(--success); box-shadow: 0 0 8px var(--success); }
+.traffic-light-yellow, .traffic-light-large.traffic-light-yellow { background: var(--warning); box-shadow: 0 0 8px var(--warning); }
+.traffic-light-red, .traffic-light-large.traffic-light-red { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+.readiness-compact-body { display: flex; gap: 16px; align-items: flex-start; padding: 16px; }
+.readiness-checklist { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.readiness-check { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.readiness-check.met { color: var(--success); }
+.readiness-check.unmet { color: var(--warning); }
 
 .handoff-inline {
   display: flex;
