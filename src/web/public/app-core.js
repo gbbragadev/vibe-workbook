@@ -352,6 +352,8 @@
   // ============ VIEW SWITCHING ============
   App.switchView = function switchView(view) {
     state.activeView = view;
+    var dd = document.getElementById('nav-more-dropdown');
+    if (dd) dd.classList.add('hidden');
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.getElementById('view-' + view).classList.add('active');
     App.updateViewButtons();
@@ -371,6 +373,11 @@
       if (!btn) return;
       btn.classList.toggle('btn-primary', key === state.activeView);
     });
+    var moreBtn = document.getElementById('btn-more');
+    if (moreBtn) {
+      var moreViews = ['terminals', 'history', 'discover', 'costs'];
+      moreBtn.classList.toggle('btn-primary', moreViews.indexOf(state.activeView) !== -1);
+    }
   }
 
   App.renderCurrentView = function renderCurrentView() {
@@ -3566,6 +3573,15 @@
     document.getElementById('btn-cost-dashboard').addEventListener('click', function() { App.switchView('costs'); });
     document.getElementById('btn-discover').addEventListener('click', function() { App.switchView('discover'); });
     document.getElementById('btn-ideas').addEventListener('click', function() { App.switchView('ideas'); });
+    // More dropdown toggle
+    document.getElementById('btn-more').addEventListener('click', function(e) {
+      e.stopPropagation();
+      document.getElementById('nav-more-dropdown').classList.toggle('hidden');
+    });
+    document.addEventListener('click', function() {
+      var dd = document.getElementById('nav-more-dropdown');
+      if (dd) dd.classList.add('hidden');
+    });
     document.getElementById('btn-new-product').addEventListener('click', function() { App.showProductWizard(); });
     document.getElementById('btn-new-workspace').addEventListener('click', App.newWorkspace);
     document.getElementById('btn-new-session').addEventListener('click', App.newSession);

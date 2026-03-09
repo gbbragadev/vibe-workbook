@@ -163,6 +163,17 @@ body {
 .logo { font-weight: 700; font-size: 15px; }
 .header-stats { font-size: 12px; color: var(--text-secondary); }
 .header-right { display: flex; align-items: center; gap: 8px; }
+.nav-more-container { position: relative; display: inline-block; }
+.nav-more-dropdown {
+  position: absolute; top: 100%; right: 0; margin-top: 4px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px;
+  display: flex; flex-direction: column; gap: 4px;
+  z-index: 100; min-width: 140px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.nav-more-dropdown.hidden { display: none; }
+.nav-more-dropdown .btn { width: 100%; text-align: left; }
 .header-right select {
   padding: 4px 8px; background: var(--bg-tertiary);
   border: 1px solid var(--border); border-radius: var(--radius-sm);

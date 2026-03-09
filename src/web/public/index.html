@@ -28,11 +28,16 @@
       </div>
       <div class="header-right">
         <button class="btn btn-sm btn-primary" id="btn-products" title="Products">Products</button>
-        <button class="btn btn-sm" id="btn-terminals" title="Terminal workspace">Terminals</button>
-        <button class="btn btn-sm" id="btn-history" title="Session history">History</button>
-        <button class="btn btn-sm" id="btn-discover" title="Discover sessions">Discover</button>
         <button class="btn btn-sm" id="btn-ideas" title="Idea discovery pipeline">Ideas</button>
-        <button class="btn btn-sm" id="btn-cost-dashboard" title="Cost dashboard">Costs</button>
+        <div class="nav-more-container">
+          <button class="btn btn-sm" id="btn-more" title="More views">More &#9662;</button>
+          <div id="nav-more-dropdown" class="nav-more-dropdown hidden">
+            <button class="btn btn-sm" id="btn-terminals">Terminals</button>
+            <button class="btn btn-sm" id="btn-history">History</button>
+            <button class="btn btn-sm" id="btn-discover">Discover</button>
+            <button class="btn btn-sm" id="btn-cost-dashboard">Costs</button>
+          </div>
+        </div>
         <select id="theme-select" title="Visual theme">
           <option value="dark">Midnight Indigo</option>
           <option value="teal">Teal Signal</option>
