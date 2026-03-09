@@ -255,7 +255,7 @@
       html += '<div class="ws-item-name">';
       html += '<span class="ws-color" style="background:' + ws.color + '"></span>';
       html += App.esc(ws.name);
-      html += agents.map(a => '<span class="agent-badge ' + a + '" title="' + (AGENT_META[a] ? AGENT_META[a].name : a) + '">' + (App.AGENT_META[a] ? App.AGENT_META[a].icon : '?') + '</span>').join('');
+      html += agents.map(a => '<span class="agent-badge ' + a + '" title="' + (App.AGENT_META[a] ? App.AGENT_META[a].name : a) + '">' + (App.AGENT_META[a] ? App.AGENT_META[a].icon : '?') + '</span>').join('');
       html += '</div>';
       html += '<div class="ws-item-meta"><span>' + wsSessions.length + ' sessions</span>';
       if (runningCount) html += '<span style="color:var(--success)">' + runningCount + ' running</span>';
