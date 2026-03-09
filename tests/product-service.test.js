@@ -59,12 +59,21 @@ function makeProductService(dir, opts = {}) {
     recommendations: []
   });
   const runCoordinatorService = opts.runCoordinatorService || new RunCoordinatorService({ runsFile });
+  const gitOrchestrator = opts.gitOrchestrator || {
+    isRepo: async () => false,
+    isDirty: async () => false,
+    commitAll: async () => null,
+    getHeadHash: async () => null,
+    hardReset: async () => {},
+    init: async () => {}
+  };
 
   return new ProductService({
     registryFile,
     handoffsFile,
     knowledgePackService,
     runCoordinatorService,
+    gitOrchestrator,
     projectCopilotService: opts.projectCopilotService
   });
 }
