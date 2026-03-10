@@ -5,10 +5,16 @@
       "product_id": "zapcam",
       "knowledge_pack_id": "pm-skills",
       "enabled": true,
-      "notes": "Pack oficial inicial para discovery, strategy, PRD e launch do produto."
+      "notes": "Official initial pack for discovery, strategy, PRD and product launch."
     },
     {
-      "product_id": "smoke-test-1773093485196",
+      "product_id": "smoke-test-1773101465261",
+      "knowledge_pack_id": "pm-skills",
+      "enabled": true,
+      "notes": "Enabled by native onboarding."
+    },
+    {
+      "product_id": "smoke-test-1773101658342",
       "knowledge_pack_id": "pm-skills",
       "enabled": true,
       "notes": "Enabled by native onboarding."
