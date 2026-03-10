@@ -672,7 +672,7 @@
         '<div class="product-card-summary">' + App.esc(product.summary || 'No product summary available.') + '</div>' +
         '<div class="product-card-stats"><div class="product-stat"><div class="product-stat-label">Artifacts</div><div class="product-stat-value">' + artifact.present + '/' + artifact.total + '</div></div><div class="product-stat"><div class="product-stat-label">Sessions</div><div class="product-stat-value">' + ((product.related_sessions || []).length) + '</div></div><div class="product-stat"><div class="product-stat-label">Readiness</div><div class="product-stat-value">' + App.esc(readinessLabel) + '</div></div><div class="product-stat"><div class="product-stat-label">Knowledge</div><div class="product-stat-value">' + App.esc(String(knowledgeSummary.active_packs || 0)) + '</div></div></div>' +
         '<div class="chip-row knowledge-chip-row" style="margin-top:10px">' + App.buildKnowledgePackChips(product.active_knowledge_packs || [], true) + '</div>' +
-        (currentRun ? '<div class="product-card-run"><span class="product-card-run-label">Current run</span><strong>' + App.esc(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') + '</strong><span class="artifact-row-meta">' + App.esc(currentRun.objective || 'Coordinated execution in progress.') + '</span></div>' : '') +
+        (currentRun ? '<div class="product-card-run"><span class="product-card-run-label">Current run</span><strong>' + App.esc(App.formatStageSignalLabel(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active', product)) + '</strong><span class="artifact-row-meta">' + App.esc(currentRun.objective || 'Coordinated execution in progress.') + '</span></div>' : '') +
         '<div class="product-card-footer"><div><div class="product-card-next-label">Recommended next move</div><div class="artifact-row-meta" style="margin-top:4px">' + App.esc(primaryAction ? primaryAction.description : (nextAction ? nextAction.label : 'Review the product detail to decide the next move.')) + '</div></div><div class="product-card-footer-actions">' + App.buildOverviewPrimaryActionButton(product, primaryAction) + '</div></div>' +
         '</article>';
     }).join('');
@@ -779,6 +779,11 @@
       .filter(Boolean)
       .map(function(part) { return part.charAt(0).toUpperCase() + part.slice(1); })
       .join(' ');
+  }
+
+  App.formatStageSignalLabel = function formatStageSignalLabel(stageId, detail) {
+    if (!stageId) return App.formatStageLabel('', detail);
+    return App.formatStageLabel(stageId, detail);
   }
 
   App.resolveAuthoritativeStageId = function resolveAuthoritativeStageId(detail) {
@@ -1286,7 +1291,7 @@
         }, 'btn')
       : '';
 
-    return '<section class="detail-panel executive-panel"><div class="panel-header"><h3>Product State</h3><span class="artifact-row-meta">executive summary</span></div><div class="panel-body"><div class="executive-grid"><div><div class="chip-row"><span class="chip subtle">stage: ' + App.esc(stageLabel) + '</span><span class="chip ' + stageSignalClass(detail.computed_stage_signal) + '">signal: ' + App.esc(detail.computed_stage_signal || stageLabel) + '</span><span class="chip ' + (displayReadiness.status === 'ready-for-release-candidate' ? 'ok' : displayReadiness.status === 'needs-evidence' ? 'warn' : 'subtle') + '">' + App.esc(displayReadiness.label || 'not assessed') + '</span></div><p class="executive-summary">' + App.esc(copilot.summary || detail.summary || 'Review the product state, evidence and next move.') + '</p><div class="meta-list executive-meta"><div><span class="meta-item-label">Artifacts</span><span class="mono">' + App.esc(String(artifactSummary.present || 0) + '/' + String(artifactSummary.total || 0)) + '</span></div><div><span class="meta-item-label">Current Run</span><span class="mono">' + App.esc(currentRun ? (currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active') : 'none') + '</span></div><div><span class="meta-item-label">Open Blockers</span><span class="mono">' + App.esc(String(blockers.length)) + '</span></div><div><span class="meta-item-label">Ready for Test</span><span class="mono">' + App.esc(((copilot.delivery_readiness || {}).ready_for_test) ? 'yes' : 'no') + '</span></div></div>' + blockerHtml + technicalSummary + '</div><div class="executive-cta-card"><div class="run-kicker">Recommended next move</div><strong>' + App.esc(primaryAction ? primaryAction.label : 'Review product state') + '</strong><p class="artifact-row-meta" style="margin-top:8px">' + App.esc(primaryAction ? primaryAction.description : 'Use the product detail below to choose the next step.') + '</p><div class="product-detail-actions executive-actions">' + (primaryAction ? App.buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta') : '') + openSessionButton + '</div></div></div></div></section>';
+    return '<section class="detail-panel executive-panel"><div class="panel-header"><h3>Product State</h3><span class="artifact-row-meta">executive summary</span></div><div class="panel-body"><div class="executive-grid"><div><div class="chip-row"><span class="chip subtle">stage: ' + App.esc(stageLabel) + '</span><span class="chip ' + stageSignalClass(detail.computed_stage_signal) + '">signal: ' + App.esc(App.formatStageSignalLabel(detail.computed_stage_signal || stageLabel, detail)) + '</span><span class="chip ' + (displayReadiness.status === 'ready-for-release-candidate' ? 'ok' : displayReadiness.status === 'needs-evidence' ? 'warn' : 'subtle') + '">' + App.esc(displayReadiness.label || 'not assessed') + '</span></div><p class="executive-summary">' + App.esc(copilot.summary || detail.summary || 'Review the product state, evidence and next move.') + '</p><div class="meta-list executive-meta"><div><span class="meta-item-label">Artifacts</span><span class="mono">' + App.esc(String(artifactSummary.present || 0) + '/' + String(artifactSummary.total || 0)) + '</span></div><div><span class="meta-item-label">Current Run</span><span class="mono">' + App.esc(currentRun ? App.formatStageSignalLabel(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active', detail) : 'none') + '</span></div><div><span class="meta-item-label">Open Blockers</span><span class="mono">' + App.esc(String(blockers.length)) + '</span></div><div><span class="meta-item-label">Ready for Test</span><span class="mono">' + App.esc(((copilot.delivery_readiness || {}).ready_for_test) ? 'yes' : 'no') + '</span></div></div>' + blockerHtml + technicalSummary + '</div><div class="executive-cta-card"><div class="run-kicker">Recommended next move</div><strong>' + App.esc(primaryAction ? primaryAction.label : 'Review product state') + '</strong><p class="artifact-row-meta" style="margin-top:8px">' + App.esc(primaryAction ? primaryAction.description : 'Use the product detail below to choose the next step.') + '</p><div class="product-detail-actions executive-actions">' + (primaryAction ? App.buildPrimaryActionButton(primaryAction, 'btn btn-primary btn-cta') : '') + openSessionButton + '</div></div></div></div></section>';
   }
 
   App.buildOperateLitePanel = function buildOperateLitePanel(detail) {
@@ -1503,6 +1508,13 @@
     state.productDetails[productId] = detail;
     await App.loadProducts(true);
     App.renderCurrentView();
+    const pendingItems = App.buildCopilotPendingItems(detail);
+    const nextCandidate = pendingItems.find(function(item) {
+      return item && item.actionType === 'review-candidate' && item.candidateId;
+    });
+    if (nextCandidate) {
+      App.openCandidateReviewDialog(productId, nextCandidate.candidateId);
+    }
   }
 
   App.openCandidateReviewDialog = function openCandidateReviewDialog(productId, candidateId) {
@@ -2404,7 +2416,7 @@
     return '<div class="handoff-list">' + handoffs.map(handoff => {
       const fromCurrentRun = currentRunId && (handoff.run_id || handoff.runId || '') === currentRunId;
       return '<div class="handoff-row">' +
-        '<div class="product-row"><strong>' + App.esc(handoff.from_stage) + ' -> ' + App.esc(handoff.to_stage) + '</strong><div class="chip-row"><span class="chip">' + App.esc(handoff.role || 'unknown-role') + '</span>' + (fromCurrentRun ? '<span class="chip knowledge">from current run</span>' : '') + '</div></div>' +
+        '<div class="product-row"><strong>' + App.esc(App.formatStageSignalLabel(handoff.from_stage, detail)) + ' -> ' + App.esc(App.formatStageSignalLabel(handoff.to_stage, detail)) + '</strong><div class="chip-row"><span class="chip">' + App.esc(handoff.role || 'unknown-role') + '</span>' + (fromCurrentRun ? '<span class="chip knowledge">from current run</span>' : '') + '</div></div>' +
         '<div class="handoff-summary">' + App.esc(handoff.summary || '') + '</div>' +
         '<details class="inline-details"><summary>Technical context</summary><div class="inline-details-body"><div class="handoff-meta-grid">' +
           App.metaItem('Run', handoff.run_id || 'none') +
@@ -2447,7 +2459,7 @@
       : (Array.isArray(run.handoffs) ? run.handoffs.length : ((detail.handoffs || []).filter(item => (item.run_id || item.runId) === runId).length));
 
     return '<div class="run-shell">' +
-      '<div class="run-status-row"><div><div class="run-kicker">Execution</div><div class="artifact-row-meta">Current stage in motion</div></div><div class="chip-row"><span class="status-pill ' + App.esc(run.status || 'in-progress') + '">' + App.esc(App.stageStatusLabel(run.status || 'in-progress')) + '</span><span class="chip">' + App.esc(stageId) + '</span><span class="chip">' + App.esc(role) + '</span><span class="chip">' + App.esc(runtimeAgent) + '</span></div></div>' +
+      '<div class="run-status-row"><div><div class="run-kicker">Execution</div><div class="artifact-row-meta">Current stage in motion</div></div><div class="chip-row"><span class="status-pill ' + App.esc(run.status || 'in-progress') + '">' + App.esc(App.stageStatusLabel(run.status || 'in-progress')) + '</span><span class="chip">' + App.esc(App.formatStageSignalLabel(stageId, detail)) + '</span><span class="chip">' + App.esc(role) + '</span><span class="chip">' + App.esc(runtimeAgent) + '</span></div></div>' +
       '<div class="run-objective">' + App.esc(run.objective || 'No run objective registered yet.') + '</div>' +
       (run.is_ready_to_complete ? '<div class="summary-callout ok"><span class="meta-item-label">Ready to complete</span><div class="artifact-row-meta">This run has linked execution context and produced outputs that can be carried into the next stage.</div></div>' : '') +
       (run.pre_run_hash ? '<div class="summary-callout warn" style="margin-top:8px"><span class="meta-item-label">Safe Checkpoint Available</span><div class="artifact-row-meta">This run started from a clean repository state (' + App.esc(run.pre_run_hash.substring(0, 7)) + '). You can safely discard all changes if things go wrong.</div></div>' : '') +
