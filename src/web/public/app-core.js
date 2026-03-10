@@ -710,7 +710,7 @@
     var earlyStages = ['idea', 'brief', 'spec'];
     var currentStage = ((detail.product || {}).stage || '').toLowerCase();
     var earlyStageHint = earlyStages.indexOf(currentStage) >= 0
-      ? '<div class="readiness-hint" style="padding:8px 16px;font-size:0.85em;opacity:0.7">Readiness se constr\u00f3i conforme os est\u00e1gios avan\u00e7am. Complete os est\u00e1gios para acumular evid\u00eancia.</div>'
+      ? '<div class="readiness-hint" style="padding:8px 16px;font-size:0.85em;opacity:0.7">Readiness builds as stages advance. Complete stages to accumulate evidence.</div>'
       : '';
 
     return '<section class="detail-panel"><div class="panel-header"><h3>Readiness</h3></div>' +
@@ -839,20 +839,20 @@
     if (blockers.length > 0 && level === 'success') {
       level = 'warning';
     }
-    var label = level === 'success' ? 'Caminho seguro' : (level === 'warning' ? 'Atencao recomendada' : 'Risco elevado de retrabalho');
-    var message = 'Avance somente depois de revisar a proxima evidencia recomendada.';
+    var label = level === 'success' ? 'Safe path' : (level === 'warning' ? 'Attention recommended' : 'High rework risk');
+    var message = 'Review the next recommended evidence before proceeding.';
     if (topItem) {
       if (topItem.kind === 'artifact-gap') {
-        message = 'Sem ' + topItem.shortLabel + ', a proxima etapa tende a abrir retrabalho.';
+        message = 'Without ' + topItem.shortLabel + ', the next stage is likely to cause rework.';
       } else if (topItem.kind === 'candidate-review') {
-        message = 'Se voce ignorar esta revisao, a memoria do produto pode seguir com contexto errado.';
+        message = 'Ignoring this review risks continuing with wrong context.';
       } else if (topItem.kind === 'open-decision') {
-        message = 'Sem fechar esta decisao, implementacao e testes podem seguir premissas conflitantes.';
+        message = 'Without closing this decision, implementation and tests may follow conflicting assumptions.';
       } else if (topItem.kind === 'readiness-gap') {
         message = topItem.detail || message;
       }
     } else if ((detail.current_run || {}).is_ready_to_complete) {
-      message = 'A etapa atual ja acumulou evidencia suficiente para um handoff seguro.';
+      message = 'Current stage has enough evidence for a safe handoff.';
     } else if (recommendation.reason) {
       message = recommendation.reason;
     }
@@ -865,7 +865,7 @@
       return {
         label: artifactItem.shortLabel,
         path: artifactItem.evidencePath,
-        helper: 'Registre esta evidencia para liberar ' + App.formatStageLabel(stageId, detail) + '.'
+        helper: 'Register this evidence to unblock ' + App.formatStageLabel(stageId, detail) + '.'
       };
     }
     var nextAction = (detail.next_actions || []).find(function(item) { return item && item.executable !== false; });
@@ -874,7 +874,7 @@
       return {
         label: 'Expected output',
         path: outputs[0],
-        helper: 'Esta e a evidencia esperada pela proxima acao oficial.'
+        helper: 'This is the expected evidence for the next official action.'
       };
     }
     var currentRun = App.resolveCurrentRun(detail);
@@ -883,7 +883,7 @@
       return {
         label: 'Run output',
         path: runOutputs[0],
-        helper: 'O run atual espera este output como proxima prova.'
+        helper: 'The current run expects this output as next proof.'
       };
     }
     var stage = App.resolveStageById(detail, stageId);
@@ -893,10 +893,10 @@
       return {
         label: artifact.label,
         path: App.toRepoRelativePath(detail, artifact.path),
-        helper: artifact.exists ? 'Arquivo ja encontrado no repositorio.' : 'Arquivo esperado para esta etapa.'
+        helper: artifact.exists ? 'File already found in repository.' : 'File expected for this stage.'
       };
     }
-    return { label: 'No evidence mapped yet', path: '', helper: 'O repositorio ainda nao sinalizou uma evidencia unica para esta etapa.' };
+    return { label: 'No evidence mapped yet', path: '', helper: 'No unique evidence mapped for this stage yet.' };
   }
 
   App.buildCopilotPendingItems = function buildCopilotPendingItems(detail, stageId) {
@@ -917,12 +917,12 @@
         kind: 'artifact-gap',
         status: missing ? 'missing' : 'blocked',
         icon: missing ? 'x' : '!',
-        title: (artifact ? artifact.label : App.formatStageLabel(artifactId)) + (missing ? ' ausente' : ' precisa de conteudo'),
+        title: (artifact ? artifact.label : App.formatStageLabel(artifactId)) + (missing ? ' missing' : ' needs content'),
         shortLabel: artifact ? artifact.label : App.formatStageLabel(artifactId),
-        detail: App.formatStageLabel(stageId, detail) + ' ainda nao tem a evidencia minima para seguir com seguranca.',
+        detail: App.formatStageLabel(stageId, detail) + ' does not have the minimum evidence to proceed safely.',
         evidencePath: artifact ? App.toRepoRelativePath(detail, artifact.path) : '',
         actionType: 'start-stage',
-        actionLabel: missing ? 'Criar' : 'Completar',
+        actionLabel: missing ? 'Create' : 'Complete',
         stageId: stageId
       });
     });
@@ -938,10 +938,10 @@
           icon: '...',
           title: item.kind_guess || item.relative_path || 'Artifact candidate',
           shortLabel: item.kind_guess || 'Artifact candidate',
-          detail: item.reason || 'A IA gerou material fora do caminho canonico e ele precisa de revisao.',
+          detail: item.reason || 'AI generated material outside the canonical path and it needs review.',
           evidencePath: App.toRepoRelativePath(detail, item.relative_path || item.path || ''),
           actionType: 'review-candidate',
-          actionLabel: 'Revisar',
+          actionLabel: 'Review',
           candidateId: item.candidate_id
         });
       });
@@ -955,12 +955,12 @@
           kind: 'open-decision',
           status: 'blocked',
           icon: '!',
-          title: item.title || 'Decisao em aberto',
-          shortLabel: item.title || 'Decisao em aberto',
-          detail: item.note || 'Registre a decisao para liberar o fluxo da etapa atual.',
+          title: item.title || 'Open decision',
+          shortLabel: item.title || 'Open decision',
+          detail: item.note || 'Register the decision to unblock the current stage flow.',
           evidencePath: item.linked_stage ? ('stage: ' + item.linked_stage) : '',
           actionType: 'resolve-decision',
-          actionLabel: 'Resolver',
+          actionLabel: 'Resolve',
           decisionId: item.decision_id
         });
       });
@@ -974,10 +974,10 @@
         icon: '!',
         title: readinessGap.label || 'Readiness gap',
         shortLabel: readinessGap.label || 'Readiness gap',
-        detail: 'A plataforma ainda nao considera o produto pronto para avancar sem revisao manual.',
+        detail: 'The platform does not consider the product ready to advance without manual review.',
         evidencePath: '',
         actionType: 'start-stage',
-        actionLabel: 'Continuar',
+        actionLabel: 'Continue',
         stageId: stageId
       });
     }
@@ -1006,45 +1006,45 @@
   App.buildCopilotReason = function buildCopilotReason(detail, stageId, pendingItems, primaryAction) {
     var topItem = (pendingItems || [])[0] || null;
     if (topItem && topItem.kind === 'artifact-gap') {
-      return 'O fluxo para em ' + App.formatStageLabel(stageId, detail) + ' porque a evidencia minima ainda nao foi registrada no repositorio.';
+      return 'Flow stops at ' + App.formatStageLabel(stageId, detail) + ' because minimum evidence has not been registered in the repository.';
     }
     if (topItem && topItem.kind === 'candidate-review') {
-      return 'Os novos artefatos ainda nao entraram na memoria oficial do produto. Revise antes de abrir mais trabalho.';
+      return 'New artifacts have not entered the official product memory yet. Review before opening more work.';
     }
     if (topItem && topItem.kind === 'open-decision') {
-      return 'Existe uma decisao aberta bloqueando coerencia entre handoff, implementacao e teste.';
+      return 'There is an open decision blocking coherence between handoff, implementation and testing.';
     }
     if (primaryAction && primaryAction.type === 'complete-stage') {
-      return 'A etapa atual ja acumulou contexto suficiente para fechar o handoff e passar bastao.';
+      return 'Current stage has accumulated enough context to close the handoff and pass the baton.';
     }
     if (primaryAction && (primaryAction.type === 'execute-next-action' || primaryAction.type === 'start-stage')) {
-      return 'O estado real do produto ja permite uma proxima acao guiada sem abrir uma refatoracao maior.';
+      return 'The product state already allows a guided next action without opening a major refactor.';
     }
-    return ((detail.copilot || {}).recommended_next_move || {}).reason || 'Revise o estado real do produto e avance uma acao por vez.';
+    return ((detail.copilot || {}).recommended_next_move || {}).reason || 'Review the product state and advance one action at a time.';
   }
 
   App.buildCopilotNarrative = function buildCopilotNarrative(detail, stageId, pendingItems, primaryAction) {
     var stageLabel = App.formatStageLabel(stageId, detail);
     var topItem = (pendingItems || [])[0] || null;
     if (topItem && topItem.kind === 'artifact-gap') {
-      return stageLabel + ' esta em andamento, mas ainda falta ' + topItem.shortLabel + ' para avancar com seguranca.';
+      return stageLabel + ' is in progress, but still missing ' + topItem.shortLabel + ' to proceed safely.';
     }
     if (topItem && topItem.kind === 'candidate-review') {
-      return 'A IA gerou novos materiais para ' + stageLabel + '. Valide esse handoff antes de criar trabalho em cima dele.';
+      return 'AI generated new materials for ' + stageLabel + '. Validate this handoff before building on top of it.';
     }
     if (topItem && topItem.kind === 'open-decision') {
-      return 'Ainda ha uma decisao aberta segurando ' + stageLabel + '. Resolva isso para liberar o fluxo.';
+      return 'There is still an open decision holding ' + stageLabel + '. Resolve it to unblock the flow.';
     }
     if (stageId === 'idea' && !(detail.summary || '').trim()) {
-      return 'O projeto ainda esta em branco. Defina a visao do produto antes de abrir novas frentes.';
+      return 'The project is still blank. Define the product vision before opening new fronts.';
     }
     if (primaryAction && primaryAction.type === 'complete-stage') {
-      return stageLabel + ' ja acumulou evidencia suficiente para ser concluido.';
+      return stageLabel + ' has enough evidence to be completed.';
     }
     if (primaryAction && (primaryAction.type === 'execute-next-action' || primaryAction.type === 'start-stage')) {
-      return 'O terreno esta limpo para continuar ' + stageLabel + ' com a proxima acao guiada.';
+      return 'Ready to continue ' + stageLabel + ' with the next guided action.';
     }
-    return (detail.copilot || {}).summary || 'O Copilot ainda esta organizando o estado real do produto.';
+    return (detail.copilot || {}).summary || 'Copilot is assessing the current product state.';
   }
 
   App.resolveCopilotHeroAction = function resolveCopilotHeroAction(detail, stageId, pendingItems, statusMeta) {
@@ -1059,54 +1059,56 @@
 
     if (topItem && topItem.actionType === 'review-candidate') {
       return {
-        html: '<button class="btn btn-cta copilot-primary-btn ' + toneClass + '" data-copilot-action="review-candidate" data-candidate-id="' + App.esc(topItem.candidateId) + '">Revisar handoff</button>',
-        support: 'Valide o material antes de usa-lo como memoria oficial.'
+        html: '<button class="btn btn-cta copilot-primary-btn ' + toneClass + '" data-copilot-action="review-candidate" data-candidate-id="' + App.esc(topItem.candidateId) + '">Review handoff</button>',
+        support: 'Validate the material before using it as official memory.'
       };
     }
     if (topItem && topItem.actionType === 'resolve-decision') {
       return {
-        html: '<button class="btn btn-cta copilot-primary-btn ' + toneClass + '" data-copilot-action="resolve-decision" data-decision-id="' + App.esc(topItem.decisionId) + '">Resolver decisao aberta</button>',
-        support: 'Feche a premissa que esta bloqueando a etapa atual.'
+        html: '<button class="btn btn-cta copilot-primary-btn ' + toneClass + '" data-copilot-action="resolve-decision" data-decision-id="' + App.esc(topItem.decisionId) + '">Resolve open decision</button>',
+        support: 'Close the assumption blocking the current stage.'
       };
     }
     if (topItem && topItem.actionType === 'start-stage') {
       return {
-        html: '<button class="btn btn-cta copilot-primary-btn ' + toneClass + '" data-product-action="start-stage" data-stage-id="' + App.esc(topItem.stageId || stageId) + '">Continuar ' + App.esc(App.formatStageLabel(topItem.stageId || stageId, detail)) + (actionAgent ? ' (' + App.esc(actionAgent) + ')' : '') + '</button>',
-        support: 'Abra a sessao guiada para produzir a evidencia que falta.'
+        html: '<button class="btn btn-cta copilot-primary-btn ' + toneClass + '" data-product-action="start-stage" data-stage-id="' + App.esc(topItem.stageId || stageId) + '">Continue ' + App.esc(App.formatStageLabel(topItem.stageId || stageId, detail)) + (actionAgent ? ' (' + App.esc(actionAgent) + ')' : '') + '</button>',
+        support: 'Open the guided session to produce the missing evidence.'
       };
     }
     if (action) {
-      var overrideLabel = action.label || 'Continuar';
+      var overrideLabel = action.label || 'Continue';
       if (action.type === 'execute-next-action' || action.type === 'start-stage') {
-        overrideLabel = 'Continuar ' + App.formatStageLabel(actionStageId, detail) + (actionAgent ? ' (' + actionAgent + ')' : '');
+        overrideLabel = 'Continue ' + App.formatStageLabel(actionStageId, detail) + (actionAgent ? ' (' + actionAgent + ')' : '');
       } else if (action.type === 'complete-stage') {
-        overrideLabel = 'Finalizar ' + App.formatStageLabel(action.stageId || stageId, detail);
+        overrideLabel = 'Finish ' + App.formatStageLabel(action.stageId || stageId, detail);
       } else if (action.type === 'open-session') {
-        overrideLabel = 'Retomar execucao';
+        overrideLabel = 'Resume execution';
       } else if (action.type === 'open-workspace') {
-        overrideLabel = 'Abrir runtime workspace';
+        overrideLabel = 'Open runtime workspace';
       }
       return {
         html: App.buildPrimaryActionButton(action, 'btn btn-cta copilot-primary-btn ' + toneClass, overrideLabel),
-        support: action.description || 'Siga a proxima acao oficial do produto.'
+        support: action.description || 'Follow the next official product action.'
       };
     }
+    var fallbackStageId = stageId || 'idea';
+    var fallbackStageLabel = App.formatStageLabel(fallbackStageId, detail);
     return {
-      html: '<button class="btn btn-cta copilot-primary-btn ' + toneClass + '" data-copilot-action="refresh">Atualizar leitura</button>',
-      support: 'Recarregue o snapshot do produto para ver a proxima recomendacao.'
+      html: '<button class="btn btn-cta copilot-primary-btn ' + toneClass + '" data-product-action="start-stage" data-stage-id="' + App.esc(fallbackStageId) + '">Start ' + App.esc(fallbackStageLabel) + '</button>',
+      support: 'Begin the current stage to produce its first evidence.'
     };
   }
 
   App.buildCopilotTaskAction = function buildCopilotTaskAction(item) {
     if (!item) return '';
     if (item.actionType === 'start-stage') {
-      return '<button class="btn btn-sm" data-product-action="start-stage" data-stage-id="' + App.esc(item.stageId || '') + '">' + App.esc(item.actionLabel || 'Continuar') + '</button>';
+      return '<button class="btn btn-sm" data-product-action="start-stage" data-stage-id="' + App.esc(item.stageId || '') + '">' + App.esc(item.actionLabel || 'Continue') + '</button>';
     }
     if (item.actionType === 'review-candidate') {
-      return '<button class="btn btn-sm" data-copilot-action="review-candidate" data-candidate-id="' + App.esc(item.candidateId || '') + '">' + App.esc(item.actionLabel || 'Revisar') + '</button>';
+      return '<button class="btn btn-sm" data-copilot-action="review-candidate" data-candidate-id="' + App.esc(item.candidateId || '') + '">' + App.esc(item.actionLabel || 'Review') + '</button>';
     }
     if (item.actionType === 'resolve-decision') {
-      return '<button class="btn btn-sm" data-copilot-action="resolve-decision" data-decision-id="' + App.esc(item.decisionId || '') + '">' + App.esc(item.actionLabel || 'Resolver') + '</button>';
+      return '<button class="btn btn-sm" data-copilot-action="resolve-decision" data-decision-id="' + App.esc(item.decisionId || '') + '">' + App.esc(item.actionLabel || 'Resolve') + '</button>';
     }
     return '';
   }
@@ -1137,7 +1139,7 @@
     // Path warning for products with invalid repo path
     var pathStatus = ((detail.product || {}).workspace || {}).path_status || '';
     var pathWarningHtml = pathStatus === 'invalid'
-      ? '<div class="copilot-blockers"><div class="copilot-blocker-item">&#9888; Diret\u00f3rio do produto n\u00e3o encontrado. Atualize o caminho do reposit\u00f3rio para ativar detec\u00e7\u00e3o de artefatos.</div></div>'
+      ? '<div class="copilot-blockers"><div class="copilot-blocker-item">&#9888; Product directory not found. Update the repository path to enable artifact detection.</div></div>'
       : '';
 
     // Blockers section
@@ -1312,7 +1314,7 @@
     const pipelineBody = '<div class="pipeline-list">' + detail.pipeline.map(step => App.buildStepCard(step)).join('') + '</div>';
     const knowledgeBody = App.buildKnowledgePackPanel(detail) + '<div style="margin-top:14px">' + App.buildStageKnowledgePanel(detail) + '</div>';
     const technicalBody = App.buildHandoffHistoryPanel(detail);
-    const sessionsBody = '<div class="session-list">' + ((detail.related_sessions || []).map(session => App.buildProductSessionRow(session)).join('') || '<p>No linked sessions yet.</p>') + '</div>';
+    const sessionsBody = '<div class="session-list">' + ((detail.related_sessions || []).map(session => App.buildProductSessionRow(session)).join('') || '<p class="empty-subtext">Sessions are created when you start a stage.</p>') + '</div>';
     var trafficLight = (detail.readiness || {}).traffic_light || 'red';
     return '<div class="product-detail-header"><div class="product-row"><div><h2>' + App.esc(detail.name) + ' <span class="traffic-light traffic-light-' + App.esc(trafficLight) + '"></span></h2><div class="product-subtitle">' + App.esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + App.esc(detail.category) + '</span><span class="chip subtle">stage: ' + App.esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + App.buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
@@ -1341,9 +1343,13 @@
     if (step.latest_incoming_handoff) {
       technicalRows += '<div class="action-row-meta"><span class="meta-item-label">Incoming context</span>' + App.buildHandoffSummaryInline(step.latest_incoming_handoff) + '</div>';
     }
+    var showActions = step.status === 'ready' || step.status === 'in-progress' || step.status === 'ready-for-handoff' || step.status === 'done';
+    var actionsHtml = showActions
+      ? '<div class="step-card-actions"><button class="btn btn-sm btn-primary" data-stage-action="start" data-stage-id="' + step.stage_id + '">Continue</button>' + (step.active_session_id ? '<button class="btn btn-sm" data-stage-action="open-session" data-session-id="' + step.active_session_id + '">Open Session</button>' : '') + (step.stage_id !== 'idea' ? '<button class="btn btn-sm" data-stage-action="complete" data-stage-id="' + step.stage_id + '">Finish Stage</button>' : '') + '</div>'
+      : '';
     return '<article class="step-card"><div class="step-card-top"><div><h4>' + App.esc(step.label) + '</h4><div class="step-card-meta"><span class="status-pill ' + App.esc(step.status) + '">' + App.esc(App.stageStatusLabel(step.status)) + '</span><span class="chip">' + App.esc(step.recommended_role) + '</span><span class="chip">' + App.esc(step.recommended_runtime_agent) + '</span></div></div></div><div class="step-card-goal">' + App.esc(step.goal) + '</div>' +
       (technicalRows ? '<details class="inline-details"><summary>Execution details</summary><div class="inline-details-body">' + technicalRows + '</div></details>' : '') +
-      '<div class="step-card-actions"><button class="btn btn-sm btn-primary" data-stage-action="start" data-stage-id="' + step.stage_id + '">Continue</button>' + (step.active_session_id ? '<button class="btn btn-sm" data-stage-action="open-session" data-session-id="' + step.active_session_id + '">Open Session</button>' : '') + (step.stage_id !== 'idea' ? '<button class="btn btn-sm" data-stage-action="complete" data-stage-id="' + step.stage_id + '">Finish Stage</button>' : '') + '</div></article>';
+      actionsHtml + '</article>';
   }
 
   App.buildNextActionRow = function buildNextActionRow(action, detail) {
@@ -2392,7 +2398,7 @@
 
   App.buildHandoffHistoryPanel = function buildHandoffHistoryPanel(detail) {
     const handoffs = Array.isArray(detail && detail.handoffs) ? detail.handoffs : [];
-    if (!handoffs.length) return '<p>No stage completions recorded yet.</p>';
+    if (!handoffs.length) return '<p class="empty-subtext">Complete a stage to create your first handoff.</p>';
     const currentRun = App.resolveCurrentRun(detail);
     const currentRunId = currentRun ? (currentRun.run_id || currentRun.id || '') : '';
     return '<div class="handoff-list">' + handoffs.map(handoff => {
@@ -2415,7 +2421,7 @@
 
   App.buildCurrentRunPanel = function buildCurrentRunPanel(detail, run) {
     if (!run) {
-      return '<div class="empty-state-inline">No active run. Start a stage to create one.</div>';
+      return '<div class="empty-state-inline">No runs yet. Start a stage from the pipeline to begin.</div>';
     }
 
     const runId = run.id || run.run_id || 'run-pending';
