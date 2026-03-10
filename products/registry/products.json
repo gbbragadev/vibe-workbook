@@ -4,13 +4,13 @@
   "products": [
     {
       "product_id": "zapcam",
-      "name": "Zapcan Instalar",
+      "name": "ZapCam Instalar",
       "slug": "zapcam",
       "status": "active",
-      "stage": "idea",
+      "stage": "brief",
       "owner": "guibr",
       "category": "product",
-      "summary": "Solucao de monitoramento IP com alertas WhatsApp e analise IA. Case de validacao da plataforma Vibe Workbook.",
+      "summary": "IP monitoring solution with WhatsApp alerts and AI analysis. Vibe Workbook platform validation case.",
       "repo": {
         "mode": "local",
         "local_path": "C:\\Users\\guibr\\ZapCam",
@@ -32,7 +32,7 @@
         "source_of_truth": "registry",
         "decision_status": "v1-clean-start",
         "notes": [
-          "Resetado para v1 como case pratico de validacao da plataforma"
+          "Reset for v1 as practical platform validation case"
         ]
       },
       "timestamps": {

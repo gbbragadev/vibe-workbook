@@ -34,9 +34,9 @@
   --danger-tint: rgba(239, 68, 68, 0.08);
   --success-tint: rgba(16, 185, 129, 0.08);
   /* Glass morphism + depth tokens */
-  --glass-bg: rgba(21, 26, 35, 0.94);
+  --glass-bg: rgba(21, 26, 35, 0.75);
   --glass-border: rgba(255, 255, 255, 0.05);
-  --glass-blur: 10px;
+  --glass-blur: 16px;
   --radius-lg: 16px;
   --shadow-sm: 0 8px 20px rgba(3, 8, 20, 0.18);
   --shadow-md: 0 18px 40px rgba(3, 8, 20, 0.24);
@@ -67,6 +67,7 @@ body[data-theme="teal"] {
   --knowledge-tint: rgba(56, 189, 248, 0.08);
   --knowledge-border: rgba(56, 189, 248, 0.24);
   --accent-glow: 0 0 20px rgba(20, 184, 166, 0.15);
+  --glass-bg: rgba(12, 26, 32, 0.75);
 }
 
 body[data-theme="ember"] {
@@ -77,6 +78,7 @@ body[data-theme="ember"] {
   --bg-active: #39281d;
   --border: #493224;
   --border-light: #68432f;
+  --glass-bg: rgba(27, 21, 16, 0.75);
   --text-primary: #f7eadf;
   --text-secondary: #c7ab94;
   --text-muted: #8f7561;
@@ -96,11 +98,25 @@ body[data-theme="ember"] {
   --accent-glow: 0 0 20px rgba(249, 115, 22, 0.15);
 }
 
+body[data-theme="teal"] {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(20, 184, 166, 0.04), transparent 70%),
+    radial-gradient(circle at top, rgba(20, 184, 166, 0.10), transparent 28%),
+    linear-gradient(180deg, #0a181e 0%, var(--bg-primary) 28%);
+}
+body[data-theme="ember"] {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(249, 115, 22, 0.04), transparent 70%),
+    radial-gradient(circle at top, rgba(249, 115, 22, 0.10), transparent 28%),
+    linear-gradient(180deg, #1a1410 0%, var(--bg-primary) 28%);
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
   font-family: var(--font);
   background:
+    radial-gradient(ellipse at 20% 50%, rgba(109, 140, 255, 0.05), transparent 70%),
     radial-gradient(circle at top, rgba(109, 140, 255, 0.12), transparent 28%),
     linear-gradient(180deg, #10141c 0%, var(--bg-primary) 28%);
   color: var(--text-primary);
