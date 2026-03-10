@@ -556,7 +556,7 @@ class ProjectCopilotService {
 
     const summaryBits = [
       `${createdAssets.length} created asset(s) are currently visible to the platform.`,
-      currentStage ? `Current stage signal is ${currentStage.stage_id} (${currentStage.status}).` : '',
+      currentStage ? `Current stage signal is ${currentStage.label || currentStage.stage_id} (${currentStage.status}).` : '',
       candidateNeedsReview.length ? `${candidateNeedsReview.length} artifact candidate(s) need semantic review.` : '',
       deliveryReadiness.ready_for_production
         ? 'The product is heuristically ready for production review.'
