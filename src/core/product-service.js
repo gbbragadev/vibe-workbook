@@ -129,6 +129,7 @@ const SKELETAL_FILE_SIZE_BYTES = 48;
 const MIN_TEXTUAL_CONTENT_CHARS = 24;
 const MAX_PREVIOUS_HANDOFF_FILES = 3;
 const MAX_PREVIOUS_HANDOFF_CHARS = 2200;
+const MAX_DIRTY_ENTRIES_IN_ERROR = 5;
 
 function safeStat(targetPath) {
   try {
@@ -452,6 +453,21 @@ function hydrateHandoffRecord(handoff, run = null) {
 
 function ensureDirectory(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function formatStartStageDirtyError(workingDir, dirtyState) {
+  if (dirtyState?.checkFailed) {
+    return `Git check failed in: ${workingDir}. Unable to verify working directory status. Ensure git is accessible and the directory is a valid repository, then try again.`;
+  }
+  const blockingEntries = Array.isArray(dirtyState?.blockingEntries) ? dirtyState.blockingEntries : [];
+  const count = blockingEntries.length;
+  const preview = blockingEntries
+    .slice(0, MAX_DIRTY_ENTRIES_IN_ERROR)
+    .map((entry) => `${entry.status} ${entry.path}`);
+  const remaining = count > preview.length ? ` (+${count - preview.length} more)` : '';
+  const pendingSummary = preview.length ? `${preview.join(', ')}${remaining}` : 'unable to list files';
+
+  return `Working directory is not clean: ${workingDir}. Pending changes (${count}): ${pendingSummary}. Commit or stash these changes in this directory and try again.`;
 }
 
 function directoryIsEmpty(dirPath) {
@@ -1507,9 +1523,19 @@ class ProductService {
     if (workingDir) {
       const isRepo = await this.gitOrchestrator.isRepo(workingDir);
       if (isRepo) {
-        const isDirty = await this.gitOrchestrator.isDirty(workingDir);
-        if (isDirty) {
-          return { error: 'Working directory has uncommitted changes. Please commit or stash them before starting an AI run to ensure a safe checkpoint.', status: 400 };
+        let dirtyState = null;
+        if (typeof this.gitOrchestrator.getDirtyState === 'function') {
+          dirtyState = await this.gitOrchestrator.getDirtyState(workingDir);
+        } else {
+          const isDirty = await this.gitOrchestrator.isDirty(workingDir);
+          dirtyState = {
+            dirty: !!isDirty,
+            blockingEntries: []
+          };
+        }
+
+        if (dirtyState.dirty) {
+          return { error: formatStartStageDirtyError(workingDir, dirtyState), status: 400 };
         }
         try {
           preRunHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`);

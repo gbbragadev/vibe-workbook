@@ -350,6 +350,167 @@ test('product service includes current run and hydrated run outputs in detail', 
   assert.ok(detail.runs.some((run) => run.run_id === start.run.run_id));
 });
 
+test('startStage ignores non-blocking .claude untracked metadata entries', async () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'zapcam');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'zapcam',
+        name: 'Zapcam',
+        slug: 'zapcam',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'Product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-zap', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, {
+    registryFile,
+    gitOrchestrator: {
+      isRepo: async () => true,
+      isDirty: async () => true,
+      getDirtyState: async () => ({
+        dirty: false,
+        blockingEntries: [],
+        ignoredEntries: [{ status: '??', path: '.claude/worktrees/test/' }]
+      }),
+      commitAll: async () => 'abc123',
+      getHeadHash: async () => 'abc123',
+      hardReset: async () => {},
+      init: async () => {}
+    }
+  });
+
+  let created = null;
+  const store = {
+    createSession(payload) {
+      created = payload;
+      return { id: 'sess-clean', status: 'running', updatedAt: Date.now(), ...payload };
+    }
+  };
+
+  const result = await service.startStage('zapcam', 'brief', { runtimeAgent: 'claude' }, store);
+  assert.equal(result.error, undefined);
+  assert.ok(result.session);
+  assert.ok(created);
+});
+
+test('startStage returns actionable dirty-tree error with directory and pending files', async () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'zapcam');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'zapcam',
+        name: 'Zapcam',
+        slug: 'zapcam',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'Product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-zap', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, {
+    registryFile,
+    gitOrchestrator: {
+      isRepo: async () => true,
+      isDirty: async () => true,
+      getDirtyState: async () => ({
+        dirty: true,
+        blockingEntries: [
+          { status: ' M', path: 'docs/brief.md' },
+          { status: '??', path: 'tmp/local-notes.txt' }
+        ],
+        ignoredEntries: []
+      }),
+      commitAll: async () => null,
+      getHeadHash: async () => null,
+      hardReset: async () => {},
+      init: async () => {}
+    }
+  });
+
+  const result = await service.startStage('zapcam', 'brief', { runtimeAgent: 'claude' }, { createSession() {} });
+  assert.equal(result.status, 400);
+  assert.match(result.error, /Working directory is not clean:/);
+  assert.match(result.error, /docs\/brief\.md/);
+  assert.match(result.error, /tmp\/local-notes\.txt/);
+  assert.match(result.error, /Commit or stash/);
+});
+
+test('startStage returns git-check-failed error when git status fails', async () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'zapcam');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'zapcam',
+        name: 'Zapcam',
+        slug: 'zapcam',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'Product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-zap', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, {
+    registryFile,
+    gitOrchestrator: {
+      isRepo: async () => true,
+      isDirty: async () => true,
+      getDirtyState: async () => ({
+        dirty: true,
+        blockingEntries: [],
+        ignoredEntries: [],
+        checkFailed: true
+      }),
+      commitAll: async () => null,
+      getHeadHash: async () => null,
+      hardReset: async () => {},
+      init: async () => {}
+    }
+  });
+
+  const result = await service.startStage('zapcam', 'brief', { runtimeAgent: 'claude' }, { createSession() {} });
+  assert.equal(result.status, 400);
+  assert.match(result.error, /git check failed/i);
+  assert.match(result.error, /zapcam/i);
+});
+
 test('product service hydrates current run with knowledge driver metadata when execution comes from pack', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
