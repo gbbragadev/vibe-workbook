@@ -1,0 +1,5 @@
+# Parecer de Aceite — Vibe Workbook v1 / v1.1
+
+Consideramos concluído o ciclo de fechamento da Vibe Workbook v1, incluindo os ajustes incrementais da v1.1 previstos no plano original. O fluxo principal está utilizável, o Project Copilot cumpre seu papel operacional, e o case **ZapCam Instalar** permanece como ponto de partida central para uso real da plataforma. As correções finais foram aplicadas de forma cirúrgica, com foco em estabilidade, consistência visual dos stages, redução de fricção no fluxo de review e confiabilidade dos testes relevantes, sem abertura indevida de escopo.
+
+Os riscos remanescentes são aceitáveis para esta fase e ficam registrados como backlog pós-v1, sem bloquear o uso inicial. A partir deste marco, a plataforma deve ser tratada como baseline oficial de uso no estado **v1 / v1.1**, e novas mudanças devem ser guiadas por evidência prática observada no uso real, e não por novas rodadas amplas de auditoria ou polimento incremental sem impacto direto.

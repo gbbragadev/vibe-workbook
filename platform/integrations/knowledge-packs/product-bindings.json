@@ -18,6 +18,42 @@
       "knowledge_pack_id": "pm-skills",
       "enabled": true,
       "notes": "Enabled by native onboarding."
+    },
+    {
+      "product_id": "smoke-test-1773108742898",
+      "knowledge_pack_id": "pm-skills",
+      "enabled": true,
+      "notes": "Enabled by native onboarding."
+    },
+    {
+      "product_id": "smoke-test-1773108752964",
+      "knowledge_pack_id": "pm-skills",
+      "enabled": true,
+      "notes": "Enabled by native onboarding."
+    },
+    {
+      "product_id": "smoke-test-1773108807030",
+      "knowledge_pack_id": "pm-skills",
+      "enabled": true,
+      "notes": "Enabled by native onboarding."
+    },
+    {
+      "product_id": "smoke-test-1773108890951",
+      "knowledge_pack_id": "pm-skills",
+      "enabled": true,
+      "notes": "Enabled by native onboarding."
+    },
+    {
+      "product_id": "smoke-test-1773108915360",
+      "knowledge_pack_id": "pm-skills",
+      "enabled": true,
+      "notes": "Enabled by native onboarding."
+    },
+    {
+      "product_id": "smoke-test-1773108925677",
+      "knowledge_pack_id": "pm-skills",
+      "enabled": true,
+      "notes": "Enabled by native onboarding."
     }
   ]
 }

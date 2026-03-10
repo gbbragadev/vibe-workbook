@@ -1,5 +1,6 @@
 node_modules/
 .playwright-cli/
+.playwright-mcp/
 output/
 
 state/
@@ -9,3 +10,10 @@ state/
 Thumbs.db
 *.log
 .worktrees/
+
+# Playwright artifacts (regeneratable)
+test-results/
+test-results.local-backup/
+playwright-report/
+playwright-report.local-backup/
+ideastmp/
