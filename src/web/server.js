@@ -117,7 +117,7 @@ function createServer() {
     const { password: pw } = req.body;
     if (pw === password) {
       const token = generateToken();
-      res.json({ token, password });
+      res.json({ token });
     } else {
       res.status(401).json({ error: 'Invalid password' });
     }
