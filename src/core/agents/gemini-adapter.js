@@ -70,6 +70,11 @@ class GeminiAdapter extends AgentAdapter {
       /You can now start/i.test(last);
   }
 
+  detectAwaitingInput(output) { return this.detectIdle(output); }
+  detectTaskCompleted(output) { return /task complete|all done/i.test(output.slice(-2000)); }
+  detectTaskFailed(output) { return /fatal error|cannot proceed/i.test(output.slice(-2000)); }
+  shouldUsePlanMode() { return false; }
+
   /** Milestone 3A — Gemini uses file-reference to avoid stdin timing dependency */
   getLaunchStrategy() {
     return 'file-reference';

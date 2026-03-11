@@ -43,3 +43,31 @@ test('AgentAdapter stubs retornam defaults corretos', () => {
   // confirmBootstrap delega a detectReadyForBootstrap → detectIdle → false
   assert.equal(a.confirmBootstrap('x'), false);
 });
+
+const ClaudeAdapter = require('../src/core/agents/claude-adapter');
+const CodexAdapter = require('../src/core/agents/codex-adapter');
+const GeminiAdapter = require('../src/core/agents/gemini-adapter');
+
+test('ClaudeAdapter detectAwaitingInput matches idle prompt', () => {
+  const a = new ClaudeAdapter({ agent: 'claude' });
+  assert.equal(a.detectAwaitingInput('working\n❯ '), true);
+  assert.equal(a.detectAwaitingInput('Human: '), true);
+  assert.equal(a.detectAwaitingInput('still processing...'), false);
+});
+
+test('ClaudeAdapter shouldUsePlanMode: true para orchestrator, false para worker', () => {
+  assert.equal(new ClaudeAdapter({ agent: 'claude', sessionRole: 'orchestrator' }).shouldUsePlanMode({}), true);
+  assert.equal(new ClaudeAdapter({ agent: 'claude', sessionRole: 'worker' }).shouldUsePlanMode({}), false);
+});
+
+test('CodexAdapter detectAwaitingInput e shouldUsePlanMode always true', () => {
+  const a = new CodexAdapter({ agent: 'codex' });
+  assert.equal(a.detectAwaitingInput('done\n> '), true);
+  assert.equal(a.shouldUsePlanMode({}), true);
+});
+
+test('GeminiAdapter detectAwaitingInput e shouldUsePlanMode false', () => {
+  const a = new GeminiAdapter({ agent: 'gemini' });
+  assert.equal(a.detectAwaitingInput('result\ngemini> '), true);
+  assert.equal(a.shouldUsePlanMode({}), false);
+});
