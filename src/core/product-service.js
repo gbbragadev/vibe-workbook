@@ -297,6 +297,23 @@ function resolveArtifact(product, artifact) {
     };
   }
 
+  const trackingMode = resolveArtifactTrackingMode(product);
+  if (trackingMode === 'manual' && artifact.id !== 'manifest') {
+    return {
+      id: artifact.id,
+      label: artifact.label,
+      path: path.join(repoPath, artifact.relativePath),
+      exists: false,
+      optional: artifact.optional,
+      source: 'repo',
+      reason: 'manual-tracking',
+      kind: 'missing',
+      sizeBytes: 0,
+      content_status: 'missing',
+      content_hint: 'manual-tracking'
+    };
+  }
+
   const primaryPath = path.join(repoPath, artifact.relativePath);
   let exists = fileExists(primaryPath);
   let matchedPath = primaryPath;
@@ -328,6 +345,26 @@ function resolveArtifact(product, artifact) {
     content_status: contentMeta.content_status,
     content_hint: contentMeta.content_hint
   };
+}
+
+function resolveArtifactTrackingMode(product) {
+  const repoPath = product?.repo?.local_path || '';
+  const manifestRef = String(product?.platform?.manifest_path || '.platform/product.json').trim() || '.platform/product.json';
+  if (repoPath && fileExists(path.join(repoPath, manifestRef))) {
+    return 'managed';
+  }
+
+  const explicitMode = String(product?.platform?.artifact_tracking || '').trim();
+  if (explicitMode === 'manual' || explicitMode === 'managed') {
+    return explicitMode;
+  }
+
+  const platform = product?.platform || {};
+  if (platform.manifest_path === '' && platform.runbook_path === '' && platform.spec_path === '') {
+    return 'manual';
+  }
+
+  return 'managed';
 }
 
 function safeMtime(targetPath) {
@@ -468,6 +505,10 @@ function formatStartStageDirtyError(workingDir, dirtyState) {
   const pendingSummary = preview.length ? `${preview.join(', ')}${remaining}` : 'unable to list files';
 
   return `Working directory is not clean: ${workingDir}. Pending changes (${count}): ${pendingSummary}. Commit or stash these changes in this directory and try again.`;
+}
+
+function stageRequiresCleanGit(stageId) {
+  return ['implementation', 'test', 'release'].includes(String(stageId || '').trim());
 }
 
 function directoryIsEmpty(dirPath) {
@@ -1210,6 +1251,7 @@ class ProductService {
       }, linkedWorkspace),
       platform: {
         template: 'standard-product-v1',
+        artifact_tracking: createMinimalStructure ? 'managed' : 'manual',
         manifest_path: createMinimalStructure ? '.platform/product.json' : '',
         runbook_path: createMinimalStructure ? 'docs/runbook.md' : '',
         spec_path: createMinimalStructure ? 'docs/spec.md' : ''
@@ -1316,7 +1358,7 @@ class ProductService {
       const isRepo = await this.gitOrchestrator.isRepo(workingDir);
       if (isRepo) {
         try {
-          const baselineHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-baseline] Stage Completed: ${payload.to_stage || payload.from_stage || 'Unknown'}`);
+          const baselineHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-baseline] Stage Completed: ${payload.to_stage || payload.from_stage || 'Unknown'}`, workingDir);
           if (baselineHash) handoff.baseline_hash = baselineHash;
         } catch (e) {
           console.error('[Milestone 4A] Failed to create Stage Baseline:', e);
@@ -1522,10 +1564,10 @@ class ProductService {
     let preRunHash = '';
     if (workingDir) {
       const isRepo = await this.gitOrchestrator.isRepo(workingDir);
-      if (isRepo) {
+      if (isRepo && stageRequiresCleanGit(stageId)) {
         let dirtyState = null;
         if (typeof this.gitOrchestrator.getDirtyState === 'function') {
-          dirtyState = await this.gitOrchestrator.getDirtyState(workingDir);
+          dirtyState = await this.gitOrchestrator.getDirtyState(workingDir, workingDir);
         } else {
           const isDirty = await this.gitOrchestrator.isDirty(workingDir);
           dirtyState = {
@@ -1538,7 +1580,7 @@ class ProductService {
           return { error: formatStartStageDirtyError(workingDir, dirtyState), status: 400 };
         }
         try {
-          preRunHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`);
+          preRunHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`, workingDir);
         } catch (e) {
           console.error('[Milestone 4A] Failed to create Pre-Run Checkpoint:', e);
         }

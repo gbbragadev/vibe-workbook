@@ -14,6 +14,19 @@ function normalizeGitPath(value) {
   return String(value || '').replace(/\\/g, '/').replace(/^\.\//, '');
 }
 
+function escapeGitArg(value) {
+  return String(value || '').replace(/"/g, '\\"');
+}
+
+function toPathspec(cwd, scopePath) {
+  if (!scopePath) return '';
+  const relativePath = path.relative(cwd, scopePath);
+  const normalized = normalizeGitPath(relativePath || '.');
+  return normalized && normalized !== '.'
+    ? ` -- "${escapeGitArg(normalized)}"`
+    : ' -- "."';
+}
+
 function parsePorcelainLine(line) {
   const rawLine = String(line || '');
   if (rawLine.length < 4) return null;
@@ -97,9 +110,9 @@ class GitOrchestrator {
   /**
    * Returns parsed dirty entries from git status porcelain format
    */
-  async listDirtyEntries(cwd) {
+  async listDirtyEntries(cwd, scopePath = '') {
     try {
-      const status = await this._runGit(cwd, 'status --porcelain');
+      const status = await this._runGit(cwd, `status --porcelain${toPathspec(cwd, scopePath)}`);
       if (!status) return [];
       return status
         .split(/\r?\n/)
@@ -114,8 +127,8 @@ class GitOrchestrator {
    * Returns dirty state with non-blocking entry filtering.
    * Non-blocking entries are tool metadata folders that should not block safe checkpoints.
    */
-  async getDirtyState(cwd) {
-    const entries = await this.listDirtyEntries(cwd);
+  async getDirtyState(cwd, scopePath = '') {
+    const entries = await this.listDirtyEntries(cwd, scopePath);
     if (entries === null) {
       // If it fails, assume dirty just to be safe, or if it's not a repo
       return {
@@ -151,20 +164,22 @@ class GitOrchestrator {
    * Stages all changes and creates a commit with a specific message and bot author.
    * Returns the new commit hash.
    */
-  async commitAll(cwd, message) {
-    const isClean = !(await this.isDirty(cwd));
+  async commitAll(cwd, message, scopePath = '') {
+    const dirtyState = await this.getDirtyState(cwd, scopePath);
+    const isClean = !dirtyState.dirty;
     if (isClean) {
       // Nothing to commit, return current head
       return await this.getHeadHash(cwd);
     }
 
     try {
+      const pathspec = toPathspec(cwd, scopePath);
       // Add all changes
-      await this._runGit(cwd, 'add -A');
+      await this._runGit(cwd, `add -A${pathspec}`);
       // Escape message quotes for inline command (simple escaping for windows/posix)
-      const safeMessage = message.replace(/"/g, '\\"');
+      const safeMessage = escapeGitArg(message);
       // Commit
-      await this._runGit(cwd, `commit --author="${this.authorString}" -m "${safeMessage}"`);
+      await this._runGit(cwd, `commit --author="${this.authorString}" -m "${safeMessage}"${pathspec}`);
       
       return await this.getHeadHash(cwd);
     } catch (e) {

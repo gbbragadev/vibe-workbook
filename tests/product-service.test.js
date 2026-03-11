@@ -82,9 +82,11 @@ test('product service builds detail with pipeline, artifacts and sessions', () =
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
   fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+  fs.mkdirSync(path.join(repoDir, '.platform'), { recursive: true });
   fs.writeFileSync(path.join(repoDir, 'docs', 'spec.md'), '# spec');
   fs.writeFileSync(path.join(repoDir, 'ARCHITECTURE.md'), '# architecture');
   fs.writeFileSync(path.join(repoDir, 'docs', 'test-strategy.md'), '# tests');
+  fs.writeFileSync(path.join(repoDir, '.platform', 'product.json'), JSON.stringify({ name: 'Zapcam' }, null, 2));
 
   const registryFile = path.join(dir, 'products.json');
   fs.writeFileSync(registryFile, JSON.stringify({
@@ -101,7 +103,7 @@ test('product service builds detail with pipeline, artifacts and sessions', () =
         summary: 'Product summary',
         repo: { local_path: repoDir },
         workspace: { runtime_workspace_id: 'ws-zap', current_working_dir: repoDir, path_status: 'valid' },
-        platform: {},
+        platform: { manifest_path: '.platform/product.json' },
         governance: {}
       }
     ]
@@ -160,7 +162,9 @@ test('product service recognizes discovery briefs as the brief artifact', () => 
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
   fs.mkdirSync(path.join(repoDir, 'docs', 'discovery'), { recursive: true });
+  fs.mkdirSync(path.join(repoDir, '.platform'), { recursive: true });
   fs.writeFileSync(path.join(repoDir, 'docs', 'discovery', '2026-03-07-zapcam-discovery-brief.md'), '# discovery brief');
+  fs.writeFileSync(path.join(repoDir, '.platform', 'product.json'), JSON.stringify({ name: 'Zapcam' }, null, 2));
 
   const registryFile = path.join(dir, 'products.json');
   fs.writeFileSync(registryFile, JSON.stringify({
@@ -350,7 +354,7 @@ test('product service includes current run and hydrated run outputs in detail', 
   assert.ok(detail.runs.some((run) => run.run_id === start.run.run_id));
 });
 
-test('startStage ignores non-blocking .claude untracked metadata entries', async () => {
+test('startStage ignores non-blocking .claude untracked metadata entries for implementation stage', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -401,13 +405,74 @@ test('startStage ignores non-blocking .claude untracked metadata entries', async
     }
   };
 
-  const result = await service.startStage('zapcam', 'brief', { runtimeAgent: 'claude' }, store);
+  const result = await service.startStage('zapcam', 'implementation', { runtimeAgent: 'codex' }, store);
   assert.equal(result.error, undefined);
   assert.ok(result.session);
   assert.ok(created);
 });
 
-test('startStage returns actionable dirty-tree error with directory and pending files', async () => {
+test('startStage does not block planning stages when repository is dirty', async () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'zapcam');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'zapcam',
+        name: 'Zapcam',
+        slug: 'zapcam',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'Product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-zap', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  let commitCalls = 0;
+  const service = makeProductService(dir, {
+    registryFile,
+    gitOrchestrator: {
+      isRepo: async () => true,
+      isDirty: async () => true,
+      getDirtyState: async () => ({
+        dirty: true,
+        blockingEntries: [
+          { status: ' M', path: 'docs/spec.md' },
+          { status: '??', path: 'tmp/local-notes.txt' }
+        ],
+        ignoredEntries: []
+      }),
+      commitAll: async () => {
+        commitCalls += 1;
+        return null;
+      },
+      getHeadHash: async () => null,
+      hardReset: async () => {},
+      init: async () => {}
+    }
+  });
+
+  const result = await service.startStage('zapcam', 'spec', { runtimeAgent: 'claude' }, {
+    createSession(payload) {
+      return { id: 'sess-spec', status: 'running', updatedAt: Date.now(), ...payload };
+    }
+  });
+
+  assert.equal(result.error, undefined);
+  assert.ok(result.session);
+  assert.equal(commitCalls, 0);
+});
+
+test('startStage returns actionable dirty-tree error with directory and pending files for implementation stage', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -453,7 +518,7 @@ test('startStage returns actionable dirty-tree error with directory and pending 
     }
   });
 
-  const result = await service.startStage('zapcam', 'brief', { runtimeAgent: 'claude' }, { createSession() {} });
+  const result = await service.startStage('zapcam', 'implementation', { runtimeAgent: 'codex' }, { createSession() {} });
   assert.equal(result.status, 400);
   assert.match(result.error, /Working directory is not clean:/);
   assert.match(result.error, /docs\/brief\.md/);
@@ -461,7 +526,67 @@ test('startStage returns actionable dirty-tree error with directory and pending 
   assert.match(result.error, /Commit or stash/);
 });
 
-test('startStage returns git-check-failed error when git status fails', async () => {
+test('startStage scopes git dirty checks and checkpoints to the product working directory for implementation stage', async () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'polyagent');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'polyagent',
+        name: 'POLYAGENT',
+        slug: 'polyagent',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'Product summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-poly', current_working_dir: repoDir, path_status: 'valid' },
+        platform: { manifest_path: '.platform/product.json' },
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const captured = {
+    dirtyArgs: null,
+    commitArgs: null
+  };
+  const service = makeProductService(dir, {
+    registryFile,
+    gitOrchestrator: {
+      isRepo: async () => true,
+      isDirty: async () => false,
+      getDirtyState: async (...args) => {
+        captured.dirtyArgs = args;
+        return { dirty: false, blockingEntries: [], ignoredEntries: [] };
+      },
+      commitAll: async (...args) => {
+        captured.commitArgs = args;
+        return 'abc123';
+      },
+      getHeadHash: async () => 'abc123',
+      hardReset: async () => {},
+      init: async () => {}
+    }
+  });
+
+  const result = await service.startStage('polyagent', 'implementation', { runtimeAgent: 'codex' }, {
+    createSession(payload) {
+      return { id: 'sess-poly', status: 'running', updatedAt: Date.now(), ...payload };
+    }
+  });
+
+  assert.equal(result.status, undefined);
+  assert.deepEqual(captured.dirtyArgs, [repoDir, repoDir]);
+  assert.deepEqual(captured.commitArgs, [repoDir, '[vibe-chkpt] Pre-Run Checkpoint for implementation', repoDir]);
+});
+
+test('startStage returns git-check-failed error when git status fails for implementation stage', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'zapcam');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -505,7 +630,7 @@ test('startStage returns git-check-failed error when git status fails', async ()
     }
   });
 
-  const result = await service.startStage('zapcam', 'brief', { runtimeAgent: 'claude' }, { createSession() {} });
+  const result = await service.startStage('zapcam', 'implementation', { runtimeAgent: 'codex' }, { createSession() {} });
   assert.equal(result.status, 400);
   assert.match(result.error, /git check failed/i);
   assert.match(result.error, /zapcam/i);
@@ -1519,8 +1644,50 @@ test('createProduct supports existing directory and existing runtime workspace w
   assert.equal(result.error, undefined);
   assert.equal(result.product.product_id, 'existing-product');
   assert.equal(result.product.workspace.runtime_workspace_id, 'ws-existing');
+  assert.equal(result.product.platform.artifact_tracking, 'manual');
   assert.equal(result.product.platform.manifest_path, '');
   assert.equal(fs.existsSync(path.join(repoDir, '.platform', 'product.json')), false);
+});
+
+test('manual-tracking products do not treat repo files as official artifacts before scaffold', () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'existing-product');
+  fs.mkdirSync(path.join(repoDir, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'docs', 'spec.md'), '# legacy spec');
+  fs.writeFileSync(path.join(repoDir, 'docs', 'runbook.md'), '# legacy runbook');
+
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'existing-product',
+        name: 'Existing Product',
+        slug: 'existing-product',
+        status: 'active',
+        stage: 'brief',
+        owner: 'guibr',
+        category: 'internal-tool',
+        summary: '',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-existing', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {
+          artifact_tracking: 'manual',
+          manifest_path: '',
+          runbook_path: '',
+          spec_path: ''
+        },
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, { registryFile });
+  const detail = service.getProductDetail('existing-product', [{ id: 'ws-existing', name: 'Existing Runtime' }], []);
+
+  assert.equal(detail.artifacts.find((artifact) => artifact.id === 'spec')?.exists, false);
+  assert.equal(detail.artifacts.find((artifact) => artifact.id === 'runbook')?.exists, false);
+  assert.equal(detail.artifact_summary.present, 0);
 });
 
 test('createProduct rejects duplicate product ids and invalid directories', () => {
