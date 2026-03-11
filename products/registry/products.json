@@ -35,6 +35,10 @@
           "Reset for v1 as practical platform validation case"
         ]
       },
+      "lifecycle": { "phase": "discovery", "health_score": null },
+      "launch": { "checklist": [], "launched_at": null },
+      "post_launch": { "metrics": [], "feedback_items": [], "improvement_runs": [] },
+      "sunset": { "criteria": "", "planned_date": null },
       "timestamps": {
         "created_at": "2026-03-07T00:00:00Z",
         "updated_at": "2026-03-09T12:00:00.000Z"
@@ -71,6 +75,10 @@
         "decision_status": "created-via-ui",
         "notes": []
       },
+      "lifecycle": { "phase": "discovery", "health_score": null },
+      "launch": { "checklist": [], "launched_at": null },
+      "post_launch": { "metrics": [], "feedback_items": [], "improvement_runs": [] },
+      "sunset": { "criteria": "", "planned_date": null },
       "timestamps": {
         "created_at": "2026-03-11T00:29:28.073Z",
         "updated_at": "2026-03-11T00:29:28.073Z"

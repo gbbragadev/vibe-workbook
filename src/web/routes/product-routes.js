@@ -201,6 +201,61 @@ function createProductRoutes({ productService, knowledgePackService, store, ptyM
     res.status(201).json(handoff);
   });
 
+  // --- Lifecycle Routes ---
+
+  router.patch('/products/:id/stage', (req, res) => {
+    const { phase } = req.body || {};
+    if (!phase) return res.status(400).json({ error: 'phase is required' });
+    const result = productService.updateLifecyclePhase(req.params.id, phase);
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    broadcastSSE('product:updated', { productId: req.params.id });
+    const detail = productService.getProductDetail(req.params.id, store.getWorkspaces(), store.getSessions());
+    res.json(detail);
+  });
+
+  router.post('/products/:id/launch', (req, res) => {
+    const { checklist } = req.body || {};
+    const result = productService.launchProduct(req.params.id, checklist);
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    broadcastSSE('product:updated', { productId: req.params.id });
+    const detail = productService.getProductDetail(req.params.id, store.getWorkspaces(), store.getSessions());
+    res.status(201).json({ launched_at: result.launched_at, detail });
+  });
+
+  router.get('/products/:id/health', (req, res) => {
+    const result = productService.getProductHealth(req.params.id);
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    res.json(result);
+  });
+
+  router.post('/products/:id/metrics', (req, res) => {
+    const result = productService.addMetric(req.params.id, req.body || {});
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    broadcastSSE('product:updated', { productId: req.params.id });
+    res.status(201).json(result);
+  });
+
+  router.post('/products/:id/feedback', (req, res) => {
+    const result = productService.addFeedback(req.params.id, req.body || {});
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    broadcastSSE('product:updated', { productId: req.params.id });
+    res.status(201).json(result);
+  });
+
+  router.post('/products/:id/improvement-runs', (req, res) => {
+    const result = productService.createImprovementRun(req.params.id, req.body || {});
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    broadcastSSE('product:updated', { productId: req.params.id });
+    res.status(201).json(result);
+  });
+
+  router.post('/products/:id/retrospectives', (req, res) => {
+    const result = productService.createRetrospective(req.params.id, req.body || {});
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    broadcastSSE('product:updated', { productId: req.params.id });
+    res.status(201).json(result);
+  });
+
   // --- Evidence & Envelope Routes ---
 
   router.post('/products/:id/runs/:runId/evidence', (req, res) => {

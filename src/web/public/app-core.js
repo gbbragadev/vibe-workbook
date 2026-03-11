@@ -46,6 +46,18 @@
   };
 
   App.STAGE_ORDER = ['idea', 'brief', 'spec', 'architecture', 'implementation', 'test', 'release'];
+  App.LIFECYCLE_PHASES = ['discovery', 'definition', 'build', 'launch', 'monitor', 'feedback', 'iterate', 'sunset'];
+  App.PHASE_TRANSITIONS = {
+    discovery: ['definition'],
+    definition: ['build', 'discovery'],
+    build: ['launch', 'definition'],
+    launch: ['monitor'],
+    monitor: ['feedback', 'iterate'],
+    feedback: ['iterate', 'monitor'],
+    iterate: ['monitor', 'feedback', 'sunset'],
+    sunset: []
+  };
+  App.STAGE_TO_PHASE = { idea: 'discovery', brief: 'discovery', spec: 'definition', architecture: 'definition', implementation: 'build', test: 'build', release: 'launch' };
   App.THEME_META = {
     dark: { name: 'Midnight Indigo' },
     teal: { name: 'Teal Signal' },
@@ -1324,7 +1336,9 @@
     return '<div class="product-detail-header"><div class="product-row"><div><h2>' + App.esc(detail.name) + ' <span class="traffic-light traffic-light-' + App.esc(trafficLight) + '"></span></h2><div class="product-subtitle">' + App.esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + App.esc(detail.category) + '</span><span class="chip subtle">stage: ' + App.esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + App.buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
       '<button class="btn btn-sm" data-product-action="change-workspace">Change Runtime Workspace</button>' +
-      '</div></div><div class="product-detail-scroll">' +
+      '</div></div>' +
+      App.buildLifecyclePhaseBar(detail) +
+      '<div class="product-detail-scroll">' +
       App.buildCopilotPanel(detail) +
       '<div class="detail-grid"><section class="detail-panel"><div class="panel-header"><h3>Artifacts</h3><span class="artifact-row-meta">' + detail.artifact_summary.present + '/' + detail.artifact_summary.total + ' present</span></div><div class="panel-body"><div class="artifact-list">' + detail.artifacts.map(artifact => App.buildArtifactRow(artifact)).join('') + '</div></div></section>' +
       App.buildReadinessPanel(detail) + '</div>' +
@@ -1334,6 +1348,9 @@
       '<section class="detail-panel"><div class="panel-header"><h3>Technical History</h3><span class="artifact-row-meta"></span></div><div class="panel-body"><div class="detail-grid"><div>' + App.buildCollapsiblePanel('Stage Completions', ((detail.handoffs || []).length) + ' records', technicalBody, false) + '</div><div>' + App.buildCollapsiblePanel('Related Sessions', ((detail.related_sessions || []).length) + ' linked', sessionsBody, false) + '</div></div></div></section></div>' +
       '<div class="detail-grid">' + App.buildCollapsiblePanel('Knowledge Packs & Guidance', ((detail.knowledge_packs || []).length) + ' active', knowledgeBody, false) +
       App.buildOperateLitePanel(detail) + '</div>' +
+      '<div class="detail-grid">' + App.buildLaunchChecklistPanel(detail) + App.buildHealthDashboard(detail) + '</div>' +
+      '<div class="detail-grid">' + App.buildFeedbackInbox(detail) + App.buildImprovementRunCreator(detail) + '</div>' +
+      '<div class="detail-grid">' + App.buildRetrospectiveForm(detail) + '</div>' +
       '</div></div>';
   }
 
@@ -1461,6 +1478,165 @@
       '</div>';
   }
 
+  // ============ LIFECYCLE PANELS ============
+
+  App.getLifecyclePhase = function getLifecyclePhase(detail) {
+    return (detail.lifecycle && detail.lifecycle.phase) || App.STAGE_TO_PHASE[detail.current_stage_id || detail.declared_stage || 'idea'] || 'discovery';
+  };
+
+  App.buildLifecyclePhaseBar = function buildLifecyclePhaseBar(detail) {
+    var currentPhase = App.getLifecyclePhase(detail);
+    var currentIdx = App.LIFECYCLE_PHASES.indexOf(currentPhase);
+    var allowed = App.PHASE_TRANSITIONS[currentPhase] || [];
+    return '<div class="lifecycle-phase-bar">' + App.LIFECYCLE_PHASES.map(function(phase, idx) {
+      var cls = 'lifecycle-phase';
+      if (phase === currentPhase) cls += ' active';
+      else if (idx < currentIdx) cls += ' done';
+      else if (allowed.indexOf(phase) >= 0) cls += ' clickable';
+      else cls += ' disabled';
+      return '<span class="' + cls + '" data-lifecycle-phase="' + App.esc(phase) + '">' + App.esc(phase) + '</span>';
+    }).join('') + '</div>';
+  };
+
+  App.buildLaunchChecklistPanel = function buildLaunchChecklistPanel(detail) {
+    var phase = App.getLifecyclePhase(detail);
+    if (phase !== 'build' && phase !== 'launch') return '';
+    var checklist = (detail.launch && detail.launch.checklist) || [];
+    var launchedAt = detail.launch && detail.launch.launched_at;
+    var items = checklist.length ? checklist.map(function(item, i) {
+      return '<div class="launch-checklist-item"><input type="checkbox" ' + (item.done ? 'checked' : '') + ' disabled><span>' + App.esc(item.label || item) + '</span></div>';
+    }).join('') : '<p class="empty-subtext">No launch checklist items yet.</p>';
+    return App.buildCollapsiblePanel('Launch Readiness',
+      launchedAt ? 'launched ' + App.esc(launchedAt.slice(0, 10)) : 'not launched',
+      items + (launchedAt ? '' : '<div style="margin-top:12px"><button class="btn btn-sm btn-primary" data-lifecycle-action="launch">Launch Product</button></div>'),
+      false);
+  };
+
+  App.buildHealthDashboard = function buildHealthDashboard(detail) {
+    var phase = App.getLifecyclePhase(detail);
+    if (phase !== 'monitor' && phase !== 'feedback' && phase !== 'iterate') return '';
+    var healthScore = (detail.lifecycle && detail.lifecycle.health_score) ?? null;
+    var statusColor = 'gray';
+    if (healthScore !== null) {
+      if (healthScore >= 80) statusColor = 'green';
+      else if (healthScore >= 50) statusColor = 'yellow';
+      else statusColor = 'red';
+    }
+    var metrics = (detail.post_launch && detail.post_launch.metrics) || [];
+    var recent = metrics.slice(-5).reverse();
+    var tableRows = recent.length ? recent.map(function(m) {
+      return '<tr><td>' + App.esc(m.name) + '</td><td>' + App.esc(String(m.value ?? '-')) + '</td><td>' + App.esc(m.unit || '') + '</td><td>' + App.esc((m.recorded_at || '').slice(0, 10)) + '</td></tr>';
+    }).join('') : '<tr><td colspan="4" style="opacity:0.4">No metrics recorded yet.</td></tr>';
+    var gaugeHtml = '<div class="health-gauge ' + statusColor + '"><span class="health-value">' + (healthScore !== null ? App.esc(String(healthScore)) : '—') + '</span><span class="health-label">Health</span></div>';
+    var tableHtml = '<div class="health-metrics-table"><table><thead><tr><th>Metric</th><th>Value</th><th>Unit</th><th>Date</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>';
+    return App.buildCollapsiblePanel('Health Dashboard', statusColor,
+      '<div class="health-dashboard">' + gaugeHtml + tableHtml + '</div><div style="margin-top:12px"><button class="btn btn-sm" data-lifecycle-action="add-metric">Add Metric</button></div>',
+      false);
+  };
+
+  App.buildFeedbackInbox = function buildFeedbackInbox(detail) {
+    var phase = App.getLifecyclePhase(detail);
+    if (phase !== 'feedback' && phase !== 'monitor' && phase !== 'iterate') return '';
+    var items = (detail.post_launch && detail.post_launch.feedback_items) || [];
+    var rows = items.length ? items.slice().reverse().slice(0, 20).map(function(fb) {
+      return '<div class="feedback-inbox-row"><span class="severity-chip ' + App.esc(fb.severity || 'medium') + '">' + App.esc(fb.severity || 'medium') + '</span><span class="feedback-title">' + App.esc(fb.title) + '</span><span class="feedback-meta">' + App.esc(fb.source || '') + ' · ' + App.esc((fb.created_at || '').slice(0, 10)) + '</span></div>';
+    }).join('') : '<p class="empty-subtext">No feedback items yet.</p>';
+    return App.buildCollapsiblePanel('Feedback Inbox', items.length + ' items',
+      rows + '<div style="margin-top:12px"><button class="btn btn-sm" data-lifecycle-action="add-feedback">Add Feedback</button></div>',
+      false);
+  };
+
+  App.buildImprovementRunCreator = function buildImprovementRunCreator(detail) {
+    var phase = App.getLifecyclePhase(detail);
+    if (phase !== 'iterate') return '';
+    var runs = (detail.post_launch && detail.post_launch.improvement_runs) || [];
+    var cards = runs.length ? runs.slice().reverse().slice(0, 10).map(function(r) {
+      return '<div class="improvement-run-card"><h4>' + App.esc(r.objective) + '</h4><div class="run-meta"><span class="chip subtle">' + App.esc(r.status || 'planned') + '</span> · ' + App.esc((r.created_at || '').slice(0, 10)) + '</div></div>';
+    }).join('') : '<p class="empty-subtext">No improvement runs yet.</p>';
+    return App.buildCollapsiblePanel('Improvement Runs', runs.length + ' runs',
+      cards + '<div style="margin-top:12px"><button class="btn btn-sm btn-primary" data-lifecycle-action="create-improvement-run">Create Improvement Run</button></div>',
+      false);
+  };
+
+  App.buildRetrospectiveForm = function buildRetrospectiveForm(detail) {
+    var phase = App.getLifecyclePhase(detail);
+    if (phase !== 'iterate' && phase !== 'sunset') return '';
+    var retros = (detail.post_launch && detail.post_launch.retrospectives) || [];
+    var existing = retros.length ? '<div style="margin-bottom:12px">' + retros.map(function(r) {
+      return '<div class="improvement-run-card"><h4>Retrospective</h4><p style="font-size:13px">' + App.esc(r.summary) + '</p><div class="run-meta">' + App.esc((r.created_at || '').slice(0, 10)) + '</div></div>';
+    }).join('') + '</div>' : '';
+    return App.buildCollapsiblePanel('Retrospective', retros.length ? retros.length + ' recorded' : 'none',
+      existing + '<div class="retrospective-form"><textarea id="retro-summary" placeholder="Summary of what happened..."></textarea><textarea id="retro-lessons" placeholder="Lessons learned..."></textarea><label><input type="checkbox" id="retro-lock"> Lock product (sunset)</label><button class="btn btn-sm btn-primary" data-lifecycle-action="submit-retrospective">Submit Retrospective</button></div>',
+      false);
+  };
+
+  // ============ LIFECYCLE DIALOGS ============
+
+  App.lifecycleTransition = async function lifecycleTransition(productId, phase) {
+    await App.api('/products/' + encodeURIComponent(productId) + '/stage', {
+      method: 'PATCH', body: JSON.stringify({ phase: phase })
+    });
+    await App.loadProducts(true);
+    await App.loadProductDetail(productId, true);
+    App.renderCurrentView();
+  };
+
+  App.lifecycleLaunch = async function lifecycleLaunch(productId) {
+    await App.api('/products/' + encodeURIComponent(productId) + '/launch', {
+      method: 'POST', body: JSON.stringify({ checklist: [] })
+    });
+    await App.loadProducts(true);
+    await App.loadProductDetail(productId, true);
+    App.renderCurrentView();
+  };
+
+  App.lifecycleAddMetric = async function lifecycleAddMetric(productId) {
+    var name = prompt('Metric name:');
+    if (!name) return;
+    var value = prompt('Value:');
+    var unit = prompt('Unit (optional):');
+    await App.api('/products/' + encodeURIComponent(productId) + '/metrics', {
+      method: 'POST', body: JSON.stringify({ name: name, value: parseFloat(value) || value, unit: unit || '' })
+    });
+    await App.loadProductDetail(productId, true);
+    App.renderCurrentView();
+  };
+
+  App.lifecycleAddFeedback = async function lifecycleAddFeedback(productId) {
+    var title = prompt('Feedback title:');
+    if (!title) return;
+    var severity = prompt('Severity (low/medium/high):', 'medium');
+    var description = prompt('Description:');
+    await App.api('/products/' + encodeURIComponent(productId) + '/feedback', {
+      method: 'POST', body: JSON.stringify({ title: title, severity: severity || 'medium', source: 'manual', description: description || '' })
+    });
+    await App.loadProductDetail(productId, true);
+    App.renderCurrentView();
+  };
+
+  App.lifecycleCreateImprovementRun = async function lifecycleCreateImprovementRun(productId) {
+    var objective = prompt('Improvement objective:');
+    if (!objective) return;
+    await App.api('/products/' + encodeURIComponent(productId) + '/improvement-runs', {
+      method: 'POST', body: JSON.stringify({ objective: objective, feedback_item_ids: [] })
+    });
+    await App.loadProductDetail(productId, true);
+    App.renderCurrentView();
+  };
+
+  App.lifecycleSubmitRetrospective = async function lifecycleSubmitRetrospective(productId) {
+    var summary = document.getElementById('retro-summary')?.value || '';
+    var lessons = document.getElementById('retro-lessons')?.value || '';
+    var lock = document.getElementById('retro-lock')?.checked || false;
+    if (!summary.trim()) { alert('Summary is required'); return; }
+    await App.api('/products/' + encodeURIComponent(productId) + '/retrospectives', {
+      method: 'POST', body: JSON.stringify({ summary: summary, lessons_learned: lessons, lock_product: lock })
+    });
+    await App.loadProducts(true);
+    await App.loadProductDetail(productId, true);
+    App.renderCurrentView();
+  };
+
   App.bindProductDetailActions = function bindProductDetailActions(detail) {
     const root = document.getElementById('product-detail');
     root.querySelectorAll('[data-product-action="open-workspace"]').forEach(el => el.addEventListener('click', () => {
@@ -1492,6 +1668,17 @@
     root.querySelectorAll('[data-copilot-action="add-decision"]').forEach(el => el.addEventListener('click', () => App.openCopilotDecisionDialog(detail)));
     root.querySelectorAll('[data-copilot-action="resolve-decision"]').forEach(el => el.addEventListener('click', () => App.updateCopilotDecisionStatus(detail.product_id, el.dataset.decisionId, 'resolved')));
     root.querySelectorAll('[data-copilot-action="reopen-decision"]').forEach(el => el.addEventListener('click', () => App.updateCopilotDecisionStatus(detail.product_id, el.dataset.decisionId, 'open')));
+    // Lifecycle bindings
+    root.querySelectorAll('[data-lifecycle-phase]').forEach(function(el) {
+      if (el.classList.contains('clickable')) {
+        el.addEventListener('click', function() { App.lifecycleTransition(detail.product_id, el.dataset.lifecyclePhase); });
+      }
+    });
+    root.querySelectorAll('[data-lifecycle-action="launch"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleLaunch(detail.product_id); }); });
+    root.querySelectorAll('[data-lifecycle-action="add-metric"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleAddMetric(detail.product_id); }); });
+    root.querySelectorAll('[data-lifecycle-action="add-feedback"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleAddFeedback(detail.product_id); }); });
+    root.querySelectorAll('[data-lifecycle-action="create-improvement-run"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleCreateImprovementRun(detail.product_id); }); });
+    root.querySelectorAll('[data-lifecycle-action="submit-retrospective"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleSubmitRetrospective(detail.product_id); }); });
   }
 
   App.refreshCopilot = async function refreshCopilot(productId) {
