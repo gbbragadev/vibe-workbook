@@ -2099,5 +2099,5 @@ textarea:focus-visible,
 .chip-danger  { background: rgba(239,68,68,0.15);  color: #ef4444; border-color: rgba(239,68,68,0.3); }
 .chip-muted   { background: rgba(107,114,128,0.15); color: #6b7280; border-color: rgba(107,114,128,0.3); }
 .btn-xs { padding: 2px 6px; font-size: 10px; border-radius: 4px; }
-.btn-danger { background: rgba(239,68,68,0.15); color: #ef4444; border-color: rgba(239,68,68,0.3); }
-.btn-danger:hover { background: rgba(239,68,68,0.25); }
+.btn-worker-danger { background: rgba(239,68,68,0.15); color: #ef4444; border-color: rgba(239,68,68,0.3); }
+.btn-worker-danger:hover { background: rgba(239,68,68,0.25); }

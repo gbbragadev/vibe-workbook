@@ -220,8 +220,8 @@
           actions.insertAdjacentHTML('afterbegin',
             '<span class="worker-ctrl" style="display:inline-flex;gap:4px;margin-right:8px">' +
             '<button class="btn btn-xs" title="Mark Done" onclick="window._app.workerMarkDone(\'' + sid + '\',\'' + rid + '\')">✓</button>' +
-            '<button class="btn btn-xs btn-danger" title="Mark Failed" onclick="window._app.workerMarkFailed(\'' + sid + '\',\'' + rid + '\')">✗</button>' +
-            '<button class="btn btn-xs btn-danger" title="Terminate" onclick="window._app.workerTerminate(\'' + sid + '\',\'' + rid + '\')">■</button>' +
+            '<button class="btn btn-xs btn-worker-danger" title="Mark Failed" onclick="window._app.workerMarkFailed(\'' + sid + '\',\'' + rid + '\')">✗</button>' +
+            '<button class="btn btn-xs btn-worker-danger" title="Terminate" onclick="window._app.workerTerminate(\'' + sid + '\',\'' + rid + '\')">■</button>' +
             '</span>');
         }
       }
