@@ -22,6 +22,7 @@ const { WebProvider } = require('../core/discovery-providers/web-provider');
 const { XProvider } = require('../core/discovery-providers/x-provider');
 const { createIdeaRoutes } = require('./routes/idea-routes');
 const { createProductRoutes } = require('./routes/product-routes');
+const { createWorkerControlRoutes } = require('./routes/worker-control-routes');
 
 // Load all agent adapters
 require('../core/agents/claude-adapter');
@@ -171,6 +172,7 @@ function createServer() {
 
   // --- Idea Routes ---
   app.use('/api', createIdeaRoutes({ ideaService, ideaDiscoveryService, productService, store, broadcastSSE }));
+  app.use('/api', createWorkerControlRoutes({ store, ptyManager }));
 
   // --- Workspace Routes ---
 
