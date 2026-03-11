@@ -31,3 +31,15 @@ test('updateSession can transition lifecycleState', () => {
   assert.equal(updated.lifecycleState, 'running');
   assert.ok(updated.lifecycleTransitionAt > 0);
 });
+
+const { AgentAdapter } = require('../src/core/agent-adapter');
+
+test('AgentAdapter stubs retornam defaults corretos', () => {
+  const a = new AgentAdapter({ agent: 'test' });
+  assert.equal(a.detectAwaitingInput('x'), false);
+  assert.equal(a.detectTaskCompleted('x'), false);
+  assert.equal(a.detectTaskFailed('x'), false);
+  assert.equal(a.shouldUsePlanMode({}), false);
+  // confirmBootstrap delega a detectReadyForBootstrap → detectIdle → false
+  assert.equal(a.confirmBootstrap('x'), false);
+});

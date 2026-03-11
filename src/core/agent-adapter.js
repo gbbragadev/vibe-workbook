@@ -143,6 +143,21 @@ class AgentAdapter {
   detectReadyForBootstrap(output) {
     return this.detectIdle(output);
   }
+
+  /** Detecta se o agente está aguardando input (bloqueado). */
+  detectAwaitingInput(output) { return false; }
+
+  /** Detecta se o agente concluiu a tarefa com sucesso. */
+  detectTaskCompleted(output) { return false; }
+
+  /** Detecta se o agente falhou terminalmente na tarefa. */
+  detectTaskFailed(output) { return false; }
+
+  /** Retorna true se esta sessão deve usar plan mode. */
+  shouldUsePlanMode(session) { return false; }
+
+  /** Confirma que o bootstrap foi recebido. Delega a detectReadyForBootstrap por padrão. */
+  confirmBootstrap(output) { return this.detectReadyForBootstrap(output); }
 }
 
 // Agent registry
