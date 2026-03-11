@@ -2101,3 +2101,50 @@ textarea:focus-visible,
 .btn-xs { padding: 2px 6px; font-size: 10px; border-radius: 4px; }
 .btn-worker-danger { background: rgba(239,68,68,0.15); color: #ef4444; border-color: rgba(239,68,68,0.3); }
 .btn-worker-danger:hover { background: rgba(239,68,68,0.25); }
+
+/* ============ LIFECYCLE PHASE BAR ============ */
+.lifecycle-phase-bar { display: flex; gap: 4px; padding: 12px 16px; overflow-x: auto; scrollbar-width: thin; }
+.lifecycle-phase { padding: 6px 14px; border-radius: var(--radius, 12px); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: var(--glass-bg, rgba(255,255,255,0.05)); border: 1px solid rgba(255,255,255,0.08); color: rgba(255,255,255,0.4); cursor: default; transition: all 0.2s; white-space: nowrap; }
+.lifecycle-phase.active { background: var(--accent-glow, rgba(99,102,241,0.25)); border-color: var(--accent-glow, rgba(99,102,241,0.5)); color: #fff; box-shadow: 0 0 12px var(--accent-glow, rgba(99,102,241,0.3)); }
+.lifecycle-phase.done { background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.3); color: #10b981; }
+.lifecycle-phase.clickable { cursor: pointer; border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.6); }
+.lifecycle-phase.clickable:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.25); color: #fff; }
+.lifecycle-phase.disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ============ HEALTH GAUGE ============ */
+.health-dashboard { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; padding: 16px 0; }
+.health-gauge { width: 120px; height: 120px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-direction: column; border: 4px solid rgba(255,255,255,0.1); }
+.health-gauge .health-value { font-size: 32px; font-weight: 700; }
+.health-gauge .health-label { font-size: 11px; opacity: 0.6; text-transform: uppercase; }
+.health-gauge.green { border-color: #10b981; color: #10b981; }
+.health-gauge.yellow { border-color: #f59e0b; color: #f59e0b; }
+.health-gauge.red { border-color: #ef4444; color: #ef4444; }
+.health-gauge.gray { border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.4); }
+.health-metrics-table { flex: 1; min-width: 240px; }
+.health-metrics-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.health-metrics-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); font-weight: 500; }
+.health-metrics-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+/* ============ FEEDBACK INBOX ============ */
+.feedback-inbox-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.feedback-inbox-row:last-child { border-bottom: none; }
+.feedback-inbox-row .feedback-title { flex: 1; font-size: 13px; }
+.feedback-inbox-row .feedback-meta { font-size: 11px; opacity: 0.5; }
+.severity-chip { padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+.severity-chip.high { background: rgba(239,68,68,0.15); color: #ef4444; }
+.severity-chip.medium { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.severity-chip.low { background: rgba(16,185,129,0.15); color: #10b981; }
+
+/* ============ LAUNCH CHECKLIST ============ */
+.launch-checklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 13px; }
+.launch-checklist-item input[type="checkbox"] { accent-color: var(--accent-glow, #6366f1); }
+
+/* ============ IMPROVEMENT RUN CARD ============ */
+.improvement-run-card { padding: 12px; border-radius: var(--radius, 12px); background: var(--glass-bg, rgba(255,255,255,0.03)); border: 1px solid rgba(255,255,255,0.06); margin-bottom: 8px; }
+.improvement-run-card h4 { margin: 0 0 6px 0; font-size: 14px; }
+.improvement-run-card .run-meta { font-size: 11px; opacity: 0.5; }
+
+/* ============ RETROSPECTIVE FORM ============ */
+.retrospective-form { display: flex; flex-direction: column; gap: 12px; }
+.retrospective-form textarea { width: 100%; min-height: 80px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: inherit; font: inherit; font-size: 13px; padding: 10px; resize: vertical; }
+.retrospective-form label { font-size: 13px; display: flex; align-items: center; gap: 8px; }

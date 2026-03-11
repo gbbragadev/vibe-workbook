@@ -12,6 +12,28 @@ const REGISTRY_FILE = path.join(ROOT_DIR, 'products', 'registry', 'products.json
 const HANDOFFS_FILE = path.join(ROOT_DIR, 'state', 'product-handoffs.json');
 const PRODUCT_TEMPLATE_DIR = path.join(ROOT_DIR, 'platform', 'templates', 'product-template');
 
+const LIFECYCLE_PHASES = ['discovery', 'definition', 'build', 'launch', 'monitor', 'feedback', 'iterate', 'sunset'];
+const STAGE_TO_PHASE_MAP = {
+  idea: 'discovery', brief: 'discovery',
+  spec: 'definition', architecture: 'definition',
+  implementation: 'build', test: 'build',
+  release: 'launch'
+};
+const PHASE_TRANSITIONS = {
+  discovery: ['definition'],
+  definition: ['build', 'discovery'],
+  build: ['launch', 'definition'],
+  launch: ['monitor'],
+  monitor: ['feedback', 'iterate'],
+  feedback: ['iterate', 'monitor'],
+  iterate: ['monitor', 'feedback', 'sunset'],
+  sunset: []
+};
+
+function deriveLifecyclePhase(product) {
+  return product?.lifecycle?.phase || STAGE_TO_PHASE_MAP[product?.stage] || 'discovery';
+}
+
 const STAGE_PRESETS = [
   {
     id: 'idea',
@@ -1492,6 +1514,10 @@ class ProductService {
         decision_status: 'created-via-ui',
         notes: []
       },
+      lifecycle: { phase: STAGE_TO_PHASE_MAP[stage] || 'discovery', health_score: null },
+      launch: { checklist: [], launched_at: null },
+      post_launch: { metrics: [], feedback_items: [], improvement_runs: [] },
+      sunset: { criteria: '', planned_date: null },
       timestamps: {
         created_at: timestamp,
         updated_at: timestamp
@@ -1655,6 +1681,10 @@ class ProductService {
       summary: product.summary,
       declared_stage: product.stage,
       computed_stage_signal: lastStep ? lastStep.stage_id : 'idea',
+      lifecycle: product.lifecycle || { phase: deriveLifecyclePhase(product), health_score: null },
+      launch: product.launch || { checklist: [], launched_at: null },
+      post_launch: product.post_launch || { metrics: [], feedback_items: [], improvement_runs: [] },
+      sunset: product.sunset || { criteria: '', planned_date: null },
       repo: product.repo,
       workspace: {
         ...product.workspace,
@@ -2027,6 +2057,189 @@ class ProductService {
       reused: false
     };
   }
+
+  // ============ LIFECYCLE METHODS ============
+
+  updateLifecyclePhase(productId, targetPhase) {
+    if (!LIFECYCLE_PHASES.includes(targetPhase)) {
+      return { error: `Invalid phase: ${targetPhase}. Valid: ${LIFECYCLE_PHASES.join(', ')}`, status: 400 };
+    }
+    const registry = this.getRegistry();
+    const product = registry.products.find((p) => p.product_id === productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+
+    const currentPhase = deriveLifecyclePhase(product);
+    const allowed = PHASE_TRANSITIONS[currentPhase] || [];
+    if (!allowed.includes(targetPhase)) {
+      return { error: `Cannot transition from ${currentPhase} to ${targetPhase}. Allowed: ${allowed.join(', ') || 'none'}`, status: 400 };
+    }
+
+    if (!product.lifecycle) product.lifecycle = { phase: currentPhase, health_score: null };
+    product.lifecycle.phase = targetPhase;
+    product.timestamps = product.timestamps || {};
+    product.timestamps.updated_at = new Date().toISOString();
+    registry.generated_at = new Date().toISOString();
+    writeJsonAtomic(this.registryFile, registry);
+    return { product_id: productId, phase: targetPhase, previous_phase: currentPhase };
+  }
+
+  launchProduct(productId, checklist) {
+    const registry = this.getRegistry();
+    const product = registry.products.find((p) => p.product_id === productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+
+    const currentPhase = deriveLifecyclePhase(product);
+    if (currentPhase !== 'build' && currentPhase !== 'launch') {
+      return { error: `Cannot launch from phase ${currentPhase}. Must be in build or launch.`, status: 400 };
+    }
+
+    if (!product.launch) product.launch = { checklist: [], launched_at: null };
+    if (!product.lifecycle) product.lifecycle = { phase: currentPhase, health_score: null };
+
+    product.launch.checklist = Array.isArray(checklist) ? checklist : [];
+    product.launch.launched_at = new Date().toISOString();
+    product.lifecycle.phase = 'launch';
+    product.timestamps = product.timestamps || {};
+    product.timestamps.updated_at = new Date().toISOString();
+    registry.generated_at = new Date().toISOString();
+    writeJsonAtomic(this.registryFile, registry);
+    return { product_id: productId, launched_at: product.launch.launched_at, checklist: product.launch.checklist };
+  }
+
+  getProductHealth(productId) {
+    const product = this.getProductById(productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+
+    const metrics = (product.post_launch?.metrics || []).slice(-10);
+    const healthScore = product.lifecycle?.health_score ?? null;
+    let statusColor = 'gray';
+    if (healthScore !== null) {
+      if (healthScore >= 80) statusColor = 'green';
+      else if (healthScore >= 50) statusColor = 'yellow';
+      else statusColor = 'red';
+    }
+
+    return {
+      product_id: productId,
+      health_score: healthScore,
+      status_color: statusColor,
+      phase: deriveLifecyclePhase(product),
+      metrics,
+      feedback_count: (product.post_launch?.feedback_items || []).length,
+      improvement_run_count: (product.post_launch?.improvement_runs || []).length
+    };
+  }
+
+  addMetric(productId, data) {
+    const registry = this.getRegistry();
+    const product = registry.products.find((p) => p.product_id === productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+
+    const name = String(data?.name || '').trim();
+    if (!name) return { error: 'Metric name is required', status: 400 };
+
+    if (!product.post_launch) product.post_launch = { metrics: [], feedback_items: [], improvement_runs: [] };
+
+    const metric = {
+      metric_id: crypto.randomUUID(),
+      name,
+      value: data.value ?? null,
+      unit: String(data.unit || '').trim(),
+      source: String(data.source || '').trim(),
+      recorded_at: new Date().toISOString()
+    };
+    product.post_launch.metrics.push(metric);
+    product.timestamps = product.timestamps || {};
+    product.timestamps.updated_at = new Date().toISOString();
+    registry.generated_at = new Date().toISOString();
+    writeJsonAtomic(this.registryFile, registry);
+    return { metric_id: metric.metric_id, metric };
+  }
+
+  addFeedback(productId, data) {
+    const registry = this.getRegistry();
+    const product = registry.products.find((p) => p.product_id === productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+
+    const title = String(data?.title || '').trim();
+    if (!title) return { error: 'Feedback title is required', status: 400 };
+
+    if (!product.post_launch) product.post_launch = { metrics: [], feedback_items: [], improvement_runs: [] };
+
+    const feedbackItem = {
+      feedback_id: crypto.randomUUID(),
+      title,
+      severity: String(data.severity || 'medium').trim(),
+      source: String(data.source || '').trim(),
+      description: String(data.description || '').trim(),
+      status: 'open',
+      created_at: new Date().toISOString()
+    };
+    product.post_launch.feedback_items.push(feedbackItem);
+    product.timestamps = product.timestamps || {};
+    product.timestamps.updated_at = new Date().toISOString();
+    registry.generated_at = new Date().toISOString();
+    writeJsonAtomic(this.registryFile, registry);
+    return { feedback_id: feedbackItem.feedback_id, feedback_item: feedbackItem };
+  }
+
+  createImprovementRun(productId, payload) {
+    const registry = this.getRegistry();
+    const product = registry.products.find((p) => p.product_id === productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+
+    const objective = String(payload?.objective || '').trim();
+    if (!objective) return { error: 'Objective is required', status: 400 };
+
+    if (!product.post_launch) product.post_launch = { metrics: [], feedback_items: [], improvement_runs: [] };
+
+    const feedbackItemIds = Array.isArray(payload.feedback_item_ids) ? payload.feedback_item_ids : [];
+    const improvementRun = {
+      improvement_run_id: crypto.randomUUID(),
+      objective,
+      feedback_item_ids: feedbackItemIds,
+      status: 'planned',
+      created_at: new Date().toISOString()
+    };
+    product.post_launch.improvement_runs.push(improvementRun);
+    product.timestamps = product.timestamps || {};
+    product.timestamps.updated_at = new Date().toISOString();
+    registry.generated_at = new Date().toISOString();
+    writeJsonAtomic(this.registryFile, registry);
+    return { improvement_run: improvementRun };
+  }
+
+  createRetrospective(productId, payload) {
+    const registry = this.getRegistry();
+    const product = registry.products.find((p) => p.product_id === productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+
+    const summary = String(payload?.summary || '').trim();
+    if (!summary) return { error: 'Summary is required', status: 400 };
+
+    const retrospective = {
+      retrospective_id: crypto.randomUUID(),
+      summary,
+      lessons_learned: String(payload.lessons_learned || '').trim(),
+      created_at: new Date().toISOString()
+    };
+
+    if (!product.post_launch) product.post_launch = { metrics: [], feedback_items: [], improvement_runs: [] };
+    if (!product.post_launch.retrospectives) product.post_launch.retrospectives = [];
+    product.post_launch.retrospectives.push(retrospective);
+
+    if (payload.lock_product === true) {
+      product.status = 'sunset';
+      if (!product.lifecycle) product.lifecycle = { phase: 'sunset', health_score: null };
+      product.lifecycle.phase = 'sunset';
+    }
+
+    product.timestamps = product.timestamps || {};
+    product.timestamps.updated_at = new Date().toISOString();
+    registry.generated_at = new Date().toISOString();
+    writeJsonAtomic(this.registryFile, registry);
+    return { retrospective, locked: payload.lock_product === true };
+  }
 }
 
 let instance = null;
@@ -2041,5 +2254,8 @@ module.exports = {
   getProductService,
   STAGE_PRESETS,
   ARTIFACT_DEFS,
-  deriveReadiness
+  deriveReadiness,
+  LIFECYCLE_PHASES,
+  STAGE_TO_PHASE_MAP,
+  PHASE_TRANSITIONS
 };
