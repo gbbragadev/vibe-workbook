@@ -72,6 +72,11 @@ class CodexAdapter extends AgentAdapter {
     return /[>❯]\s*$/.test(last) || /What would you like/i.test(last);
   }
 
+  detectAwaitingInput(output) { return this.detectIdle(output); }
+  detectTaskCompleted(output) { return /task complete|done\./i.test(output.slice(-2000)); }
+  detectTaskFailed(output) { return /fatal error|cannot proceed/i.test(output.slice(-2000)); }
+  shouldUsePlanMode() { return true; }
+
   /** Milestone 3A — Codex uses file-reference for robust bootstrap */
   getLaunchStrategy() {
     return 'file-reference';

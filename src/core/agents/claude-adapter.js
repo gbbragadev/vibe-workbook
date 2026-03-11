@@ -64,6 +64,14 @@ class ClaudeAdapter extends AgentAdapter {
     return /[❯$>]\s*$/.test(last) || /^Human:/m.test(last);
   }
 
+  detectAwaitingInput(output) { return this.detectIdle(output); }
+  detectTaskCompleted(output) { return /task complete|all done/i.test(output.slice(-2000)); }
+  detectTaskFailed(output) { return /fatal error|cannot proceed|unable to complete/i.test(output.slice(-2000)); }
+  shouldUsePlanMode(session) {
+    const role = (session && session.sessionRole) || (this.session && this.session.sessionRole) || '';
+    return role === 'orchestrator';
+  }
+
   detectLaunchFailure(output) {
     const baseFailure = super.detectLaunchFailure(output);
     if (baseFailure) return baseFailure;

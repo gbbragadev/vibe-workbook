@@ -3921,7 +3921,10 @@
       registerHandoff: App.registerHandoff,
       updateIdeaStatus: App.updateIdeaStatus,
       deleteIdea: App.deleteIdea,
-      convertIdea: App.convertIdea
+      convertIdea: App.convertIdea,
+      workerMarkDone: function(sid, rid) { return App.workerMarkDone && App.workerMarkDone(sid, rid); },
+      workerMarkFailed: function(sid, rid) { return App.workerMarkFailed && App.workerMarkFailed(sid, rid); },
+      workerTerminate: function(sid, rid) { return App.workerTerminate && App.workerTerminate(sid, rid); }
     };
 
     App.updateViewButtons();
