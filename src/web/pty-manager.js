@@ -212,6 +212,7 @@ class PtyManager {
       pid: ptyProcess.pid,
       command
     });
+    store.updateSession(sessionId, { lifecycleState: 'running', lifecycleTransitionAt: Date.now() });
     store.addSessionLog(sessionId, `Launched ${session.agent}: ${command}`);
 
     if (session.promptSeed && session.promptSeedPending !== false && opts.injectPrompt !== false) {
@@ -294,10 +295,42 @@ class PtyManager {
         store.addSessionLog(sessionId, attempts > 0
           ? `Injected guided prompt seed after agent became ready${strategyNote}`
           : `Injected guided prompt seed${strategyNote}`);
+        store.updateSession(sessionId, { bootstrapState: 'sent' });
+        this._scheduleBootstrapConfirmation({
+          sessionId, ptySession, adapter, store, maxRetries: 5, retryDelayMs: 300, attempt: 0
+        });
       } catch (e) {
         store.addSessionLog(sessionId, `Prompt seed injection failed: ${e.message}`);
       }
     }, promptDelayMs);
+  }
+
+  _scheduleBootstrapConfirmation({ sessionId, ptySession, adapter, store, maxRetries, retryDelayMs, attempt }) {
+    setTimeout(() => {
+      try {
+        if (!ptySession.alive) return;
+        const output = ptySession.getRecentOutput();
+        if (adapter.confirmBootstrap(output)) {
+          store.updateSession(sessionId, { bootstrapState: 'confirmed' });
+          store.addSessionLog(sessionId, JSON.stringify({
+            at: Date.now(), type: 'lifecycle', from: 'sent', to: 'confirmed', reason: 'bootstrap confirmed'
+          }));
+          return;
+        }
+        if (attempt < maxRetries) {
+          this._scheduleBootstrapConfirmation({ sessionId, ptySession, adapter, store, maxRetries, retryDelayMs, attempt: attempt + 1 });
+          return;
+        }
+        store.updateSession(sessionId, {
+          bootstrapState: 'failed', lifecycleState: 'bootstrap_failed', lifecycleTransitionAt: Date.now()
+        });
+        store.addSessionLog(sessionId, JSON.stringify({
+          at: Date.now(), type: 'lifecycle', from: 'sent', to: 'bootstrap_failed', reason: 'timeout'
+        }));
+      } catch (e) {
+        store.addSessionLog(sessionId, `Bootstrap confirmation error: ${e.message}`);
+      }
+    }, retryDelayMs);
   }
 
   /**
