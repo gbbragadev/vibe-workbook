@@ -4,6 +4,52 @@ const path = require('path');
 const fs = require('fs');
 const execAsync = util.promisify(exec);
 
+const NON_BLOCKING_UNTRACKED_PREFIXES = [
+  '.claude/',
+  '.codex/',
+  '.gemini/'
+];
+
+function normalizeGitPath(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function escapeGitArg(value) {
+  return String(value || '').replace(/"/g, '\\"');
+}
+
+function toPathspec(cwd, scopePath) {
+  if (!scopePath) return '';
+  const relativePath = path.relative(cwd, scopePath);
+  const normalized = normalizeGitPath(relativePath || '.');
+  return normalized && normalized !== '.'
+    ? ` -- "${escapeGitArg(normalized)}"`
+    : ' -- "."';
+}
+
+function parsePorcelainLine(line) {
+  const rawLine = String(line || '');
+  if (rawLine.length < 4) return null;
+  const status = rawLine.slice(0, 2);
+  const rawPath = rawLine.slice(3).trim();
+  if (!rawPath) return null;
+  const finalPath = rawPath.includes(' -> ')
+    ? rawPath.split(' -> ').pop().trim()
+    : rawPath;
+  return {
+    status,
+    path: finalPath
+  };
+}
+
+function isNonBlockingUntrackedEntry(entry) {
+  if (!entry || entry.status !== '??') return false;
+  const normalizedPath = normalizeGitPath(entry.path);
+  return NON_BLOCKING_UNTRACKED_PREFIXES.some((prefix) => (
+    normalizedPath === prefix.slice(0, -1) || normalizedPath.startsWith(prefix)
+  ));
+}
+
 /**
  * GitOrchestrator
  * Provides a safe and semantic abstraction over local Git repositories
@@ -57,13 +103,50 @@ class GitOrchestrator {
    * Returns true if there are uncommitted local changes (tracked or untracked)
    */
   async isDirty(cwd) {
+    const state = await this.getDirtyState(cwd);
+    return state.dirty;
+  }
+
+  /**
+   * Returns parsed dirty entries from git status porcelain format
+   */
+  async listDirtyEntries(cwd, scopePath = '') {
     try {
-      const status = await this._runGit(cwd, 'status --porcelain');
-      return status.length > 0;
+      const status = await this._runGit(cwd, `status --porcelain${toPathspec(cwd, scopePath)}`);
+      if (!status) return [];
+      return status
+        .split(/\r?\n/)
+        .map((line) => parsePorcelainLine(line))
+        .filter(Boolean);
     } catch (e) {
-      // If it fails, assume dirty just to be safe, or if it's not a repo
-      return true;
+      return null;
     }
+  }
+
+  /**
+   * Returns dirty state with non-blocking entry filtering.
+   * Non-blocking entries are tool metadata folders that should not block safe checkpoints.
+   */
+  async getDirtyState(cwd, scopePath = '') {
+    const entries = await this.listDirtyEntries(cwd, scopePath);
+    if (entries === null) {
+      // If it fails, assume dirty just to be safe, or if it's not a repo
+      return {
+        dirty: true,
+        blockingEntries: [],
+        ignoredEntries: [],
+        checkFailed: true
+      };
+    }
+
+    const ignoredEntries = entries.filter((entry) => isNonBlockingUntrackedEntry(entry));
+    const blockingEntries = entries.filter((entry) => !isNonBlockingUntrackedEntry(entry));
+    return {
+      dirty: blockingEntries.length > 0,
+      blockingEntries,
+      ignoredEntries,
+      checkFailed: false
+    };
   }
 
   /**
@@ -81,20 +164,22 @@ class GitOrchestrator {
    * Stages all changes and creates a commit with a specific message and bot author.
    * Returns the new commit hash.
    */
-  async commitAll(cwd, message) {
-    const isClean = !(await this.isDirty(cwd));
+  async commitAll(cwd, message, scopePath = '') {
+    const dirtyState = await this.getDirtyState(cwd, scopePath);
+    const isClean = !dirtyState.dirty;
     if (isClean) {
       // Nothing to commit, return current head
       return await this.getHeadHash(cwd);
     }
 
     try {
+      const pathspec = toPathspec(cwd, scopePath);
       // Add all changes
-      await this._runGit(cwd, 'add -A');
+      await this._runGit(cwd, `add -A${pathspec}`);
       // Escape message quotes for inline command (simple escaping for windows/posix)
-      const safeMessage = message.replace(/"/g, '\\"');
+      const safeMessage = escapeGitArg(message);
       // Commit
-      await this._runGit(cwd, `commit --author="${this.authorString}" -m "${safeMessage}"`);
+      await this._runGit(cwd, `commit --author="${this.authorString}" -m "${safeMessage}"${pathspec}`);
       
       return await this.getHeadHash(cwd);
     } catch (e) {

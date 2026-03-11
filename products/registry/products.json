@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-03-09T12:00:00.000Z",
+  "generated_at": "2026-03-11T00:29:28.073Z",
   "products": [
     {
       "product_id": "zapcam",
@@ -38,6 +38,42 @@
       "timestamps": {
         "created_at": "2026-03-07T00:00:00Z",
         "updated_at": "2026-03-09T12:00:00.000Z"
+      }
+    },
+    {
+      "product_id": "polyagent",
+      "name": "POLYAGENT",
+      "slug": "polyagent",
+      "status": "active",
+      "stage": "idea",
+      "owner": "guibr",
+      "category": "experiment",
+      "summary": "PolyAgent é um agente autônomo de trading para o Polymarket — a maior plataforma de mercados de previsão descentralizada do mundo. O agente usa inteligência artificial (LLMs) para analisar eventos em tempo real, identificar ineficiências nas odds do mercado, executar apostas com tamanho calculado por gerenciamento de banca e liquidar o lucro diário diretamente na conta bancária via PIX.\n\nO produto é dividido em duas grandes fases: uma fase de aprendizado sem capital real (paper trading), onde o agente é calibrado e benchmarkado; e uma fase de produção, onde opera com capital real e distribui o lucro automaticamente todo dia.",
+      "repo": {
+        "mode": "local",
+        "local_path": "C:\\Users\\guibr\\Documents\\_Organizados\\Projetos\\Guilherme_Projetos\\POLYAGENT",
+        "remote_url": "",
+        "default_branch": "main"
+      },
+      "workspace": {
+        "runtime_workspace_id": "ws-157d89d9",
+        "current_working_dir": "C:\\Users\\guibr\\Documents\\_Organizados\\Projetos\\Guilherme_Projetos\\POLYAGENT",
+        "path_status": "valid"
+      },
+      "platform": {
+        "template": "standard-product-v1",
+        "manifest_path": ".platform/product.json",
+        "runbook_path": "docs/runbook.md",
+        "spec_path": "docs/spec.md"
+      },
+      "governance": {
+        "source_of_truth": "registry",
+        "decision_status": "created-via-ui",
+        "notes": []
+      },
+      "timestamps": {
+        "created_at": "2026-03-11T00:29:28.073Z",
+        "updated_at": "2026-03-11T00:29:28.073Z"
       }
     }
   ]

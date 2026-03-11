@@ -29,6 +29,16 @@ function dedupe(values) {
   return [...new Set((values || []).filter(Boolean))];
 }
 
+function compareLinkedSessions(a, b) {
+  const orderA = Number.isFinite(Number(a?.displayOrder)) ? Number(a.displayOrder) : Number.MAX_SAFE_INTEGER;
+  const orderB = Number.isFinite(Number(b?.displayOrder)) ? Number(b.displayOrder) : Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) return orderA - orderB;
+  const updatedA = Number(a?.updatedAt || 0);
+  const updatedB = Number(b?.updatedAt || 0);
+  if (updatedA !== updatedB) return updatedB - updatedA;
+  return String(a?.id || '').localeCompare(String(b?.id || ''));
+}
+
 function buildKnowledgeDriver(payload = {}) {
   if (!payload.knowledge_pack_id || !payload.preset_type || !payload.preset_id) return null;
   return {
@@ -251,7 +261,9 @@ class RunCoordinatorService {
     if (!run || !session) return null;
 
     run.session_ids = dedupe([...(run.session_ids || []), session.id]);
-    run.current_session_id = session.id;
+    if (!run.current_session_id || session.sessionRole === 'orchestrator') {
+      run.current_session_id = session.id;
+    }
     run.suggested_runtime_agent = run.suggested_runtime_agent || session.agent || '';
     run.workspace_id = run.workspace_id || session.workspaceId || '';
     run.status = 'active';
@@ -321,7 +333,7 @@ class RunCoordinatorService {
 
     const linkedSessions = sessions
       .filter((session) => (run.session_ids || []).includes(session.id))
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      .sort(compareLinkedSessions);
 
     const linkedHandoffs = handoffs
       .filter((handoff) => (run.handoff_ids || []).includes(handoff.handoff_id))
@@ -354,7 +366,9 @@ class RunCoordinatorService {
     const sortedProducedOutputs = producedOutputs.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
     const completionSummary = buildCompletionSummary(expectedOutputs, sortedProducedOutputs);
     const latestHandoff = linkedHandoffs[0] || null;
-    const primarySessionId = run.current_session_id
+    const orchestratorSession = linkedSessions.find((session) => (session.sessionRole || '') === 'orchestrator') || null;
+    const primarySessionId = orchestratorSession?.id
+      || run.current_session_id
       || (linkedSessions[0]?.id || '')
       || ((run.session_ids || [])[0] || '');
     const meaningfulProducedOutputs = sortedProducedOutputs.filter(isMeaningfulProducedOutput);

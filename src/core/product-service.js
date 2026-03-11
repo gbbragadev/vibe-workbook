@@ -78,6 +78,55 @@ const STAGE_PRESETS = [
   }
 ];
 
+const STAGE_CLUSTER_PRESETS = {
+  brief: {
+    terminalLayout: 2,
+    sessions: [
+      { sessionRole: 'orchestrator', workerKind: 'orchestrator', suffix: 'Orchestrator', role: 'stage-orchestrator', agent: 'claude', displayOrder: 0 },
+      { sessionRole: 'worker', workerKind: 'brief-analyst', suffix: 'Brief Worker', role: 'brief-analyst', agent: 'gemini', displayOrder: 1 }
+    ]
+  },
+  spec: {
+    terminalLayout: 2,
+    sessions: [
+      { sessionRole: 'orchestrator', workerKind: 'orchestrator', suffix: 'Orchestrator', role: 'stage-orchestrator', agent: 'claude', displayOrder: 0 },
+      { sessionRole: 'worker', workerKind: 'scope-planner', suffix: 'Spec Worker', role: 'scope-planner', agent: 'codex', displayOrder: 1 }
+    ]
+  },
+  architecture: {
+    terminalLayout: 2,
+    sessions: [
+      { sessionRole: 'orchestrator', workerKind: 'orchestrator', suffix: 'Orchestrator', role: 'stage-orchestrator', agent: 'codex', displayOrder: 0 },
+      { sessionRole: 'worker', workerKind: 'risk-review', suffix: 'Architecture Worker', role: 'risk-review', agent: 'claude', displayOrder: 1 }
+    ]
+  },
+  implementation: {
+    terminalLayout: 4,
+    sessions: [
+      { sessionRole: 'orchestrator', workerKind: 'orchestrator', suffix: 'Orchestrator', role: 'stage-orchestrator', agent: 'codex', displayOrder: 0 },
+      { sessionRole: 'worker', workerKind: 'feature-builder', suffix: 'Build Worker', role: 'feature-builder', agent: 'codex', displayOrder: 1 },
+      { sessionRole: 'worker', workerKind: 'reviewer', suffix: 'Review Worker', role: 'reviewer', agent: 'claude', displayOrder: 2 }
+    ]
+  },
+  test: {
+    terminalLayout: 4,
+    sessions: [
+      { sessionRole: 'orchestrator', workerKind: 'orchestrator', suffix: 'Orchestrator', role: 'stage-orchestrator', agent: 'claude', displayOrder: 0 },
+      { sessionRole: 'worker', workerKind: 'qa-regression', suffix: 'Regression Worker', role: 'qa-regression', agent: 'claude', displayOrder: 1 },
+      { sessionRole: 'worker', workerKind: 'bug-hunter', suffix: 'Bug Worker', role: 'bug-hunter', agent: 'gemini', displayOrder: 2 }
+    ]
+  },
+  release: {
+    terminalLayout: 4,
+    sessions: [
+      { sessionRole: 'orchestrator', workerKind: 'orchestrator', suffix: 'Orchestrator', role: 'stage-orchestrator', agent: 'claude', displayOrder: 0 },
+      { sessionRole: 'worker', workerKind: 'release-notes', suffix: 'Release Notes Worker', role: 'release-notes', agent: 'claude', displayOrder: 1 },
+      { sessionRole: 'worker', workerKind: 'runbook-check', suffix: 'Runbook Worker', role: 'runbook-check', agent: 'codex', displayOrder: 2 },
+      { sessionRole: 'worker', workerKind: 'ops-readiness', suffix: 'Ops Worker', role: 'ops-readiness', agent: 'gemini', displayOrder: 3 }
+    ]
+  }
+};
+
 const ARTIFACT_DEFS = [
   { id: 'manifest', label: 'Product Manifest', relativePath: '.platform/product.json', optional: false },
   { id: 'brief', label: 'Brief', relativePath: 'docs/brief.md', optional: false, alternates: ['docs/discovery'] },
@@ -129,6 +178,7 @@ const SKELETAL_FILE_SIZE_BYTES = 48;
 const MIN_TEXTUAL_CONTENT_CHARS = 24;
 const MAX_PREVIOUS_HANDOFF_FILES = 3;
 const MAX_PREVIOUS_HANDOFF_CHARS = 2200;
+const MAX_DIRTY_ENTRIES_IN_ERROR = 5;
 
 function safeStat(targetPath) {
   try {
@@ -296,6 +346,23 @@ function resolveArtifact(product, artifact) {
     };
   }
 
+  const trackingMode = resolveArtifactTrackingMode(product);
+  if (trackingMode === 'manual' && artifact.id !== 'manifest') {
+    return {
+      id: artifact.id,
+      label: artifact.label,
+      path: path.join(repoPath, artifact.relativePath),
+      exists: false,
+      optional: artifact.optional,
+      source: 'repo',
+      reason: 'manual-tracking',
+      kind: 'missing',
+      sizeBytes: 0,
+      content_status: 'missing',
+      content_hint: 'manual-tracking'
+    };
+  }
+
   const primaryPath = path.join(repoPath, artifact.relativePath);
   let exists = fileExists(primaryPath);
   let matchedPath = primaryPath;
@@ -327,6 +394,26 @@ function resolveArtifact(product, artifact) {
     content_status: contentMeta.content_status,
     content_hint: contentMeta.content_hint
   };
+}
+
+function resolveArtifactTrackingMode(product) {
+  const repoPath = product?.repo?.local_path || '';
+  const manifestRef = String(product?.platform?.manifest_path || '.platform/product.json').trim() || '.platform/product.json';
+  if (repoPath && fileExists(path.join(repoPath, manifestRef))) {
+    return 'managed';
+  }
+
+  const explicitMode = String(product?.platform?.artifact_tracking || '').trim();
+  if (explicitMode === 'manual' || explicitMode === 'managed') {
+    return explicitMode;
+  }
+
+  const platform = product?.platform || {};
+  if (platform.manifest_path === '' && platform.runbook_path === '' && platform.spec_path === '') {
+    return 'manual';
+  }
+
+  return 'managed';
 }
 
 function safeMtime(targetPath) {
@@ -452,6 +539,25 @@ function hydrateHandoffRecord(handoff, run = null) {
 
 function ensureDirectory(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function formatStartStageDirtyError(workingDir, dirtyState) {
+  if (dirtyState?.checkFailed) {
+    return `Git check failed in: ${workingDir}. Unable to verify working directory status. Ensure git is accessible and the directory is a valid repository, then try again.`;
+  }
+  const blockingEntries = Array.isArray(dirtyState?.blockingEntries) ? dirtyState.blockingEntries : [];
+  const count = blockingEntries.length;
+  const preview = blockingEntries
+    .slice(0, MAX_DIRTY_ENTRIES_IN_ERROR)
+    .map((entry) => `${entry.status} ${entry.path}`);
+  const remaining = count > preview.length ? ` (+${count - preview.length} more)` : '';
+  const pendingSummary = preview.length ? `${preview.join(', ')}${remaining}` : 'unable to list files';
+
+  return `Working directory is not clean: ${workingDir}. Pending changes (${count}): ${pendingSummary}. Commit or stash these changes in this directory and try again.`;
+}
+
+function stageRequiresCleanGit(stageId) {
+  return ['implementation', 'test', 'release'].includes(String(stageId || '').trim());
 }
 
 function directoryIsEmpty(dirPath) {
@@ -1048,6 +1154,60 @@ function buildGuidedPrompt(product, stage, run, expectedOutputs = [], previousHa
   ].filter(Boolean).join('\n');
 }
 
+function getStageClusterPreset(stageId, stage = null) {
+  const preset = STAGE_CLUSTER_PRESETS[stageId] || null;
+  if (preset) return preset;
+  return {
+    terminalLayout: 2,
+    sessions: [
+      {
+        sessionRole: 'orchestrator',
+        workerKind: 'orchestrator',
+        suffix: 'Orchestrator',
+        role: 'stage-orchestrator',
+        agent: stage?.recommended_runtime_agent || 'claude',
+        displayOrder: 0
+      }
+    ]
+  };
+}
+
+function buildClusterPrompt(basePrompt, spec, run, stage) {
+  const roleTitle = spec.sessionRole === 'orchestrator' ? 'Run orchestrator' : `Worker: ${spec.workerKind || spec.role || 'specialist'}`;
+  const instructions = spec.sessionRole === 'orchestrator'
+    ? [
+        'You are the orchestrator for this coordinated run.',
+        'Break the work into clear sub-problems for the supporting workers already open in parallel.',
+        'Keep the final state, release readiness and next handoff coherent across the cluster.',
+        'Do not try to execute every task alone when a worker is better suited.'
+      ]
+    : [
+        `You are a specialized worker in run ${run.run_id}.`,
+        `Focus only on the assigned lane: ${spec.workerKind || spec.role || 'specialized execution'}.`,
+        'Report concise findings, outputs and blockers back to the orchestrator session.',
+        'Avoid redefining the global plan unless the orchestrator prompt explicitly asks for it.'
+      ];
+  return [
+    basePrompt,
+    '',
+    `Cluster role: ${roleTitle}`,
+    `Cluster stage: ${stage.label} (${stage.stage_id})`,
+    ...instructions
+  ].filter(Boolean).join('\n');
+}
+
+function sortClusterSessions(sessions = []) {
+  return sessions.slice().sort((a, b) => {
+    const orderA = Number.isFinite(Number(a?.displayOrder)) ? Number(a.displayOrder) : Number.MAX_SAFE_INTEGER;
+    const orderB = Number.isFinite(Number(b?.displayOrder)) ? Number(b.displayOrder) : Number.MAX_SAFE_INTEGER;
+    if (orderA !== orderB) return orderA - orderB;
+    const orchestratorA = (a?.sessionRole || '') === 'orchestrator' ? 0 : 1;
+    const orchestratorB = (b?.sessionRole || '') === 'orchestrator' ? 0 : 1;
+    if (orchestratorA !== orchestratorB) return orchestratorA - orchestratorB;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+}
+
 class ProductService {
   constructor(opts = {}) {
     this.registryFile = opts.registryFile || REGISTRY_FILE;
@@ -1086,6 +1246,134 @@ class ProductService {
     if (workspacePath && fileExists(workspacePath)) return workspacePath;
 
     return preferredPath || workspacePath || repoPath || '';
+  }
+
+  ensureRunEnvelope(run, product, stageForRun, previousHandoff = null, preferredAgent = '') {
+    let runsData = this.runCoordinatorService.getStore();
+    let runRecord = runsData.runs.find((item) => item.run_id === run.run_id) || null;
+    let envelopePath = runRecord?.execution_envelope_path || '';
+
+    if (!envelopePath) {
+      const envelopeResult = this.orchestratorService.generateEnvelope(run, product, stageForRun, {
+        previousHandoff: previousHandoff || null
+      });
+      envelopePath = envelopeResult.envelopePath || '';
+      runsData = this.runCoordinatorService.getStore();
+      runRecord = runsData.runs.find((item) => item.run_id === run.run_id) || null;
+      if (runRecord && envelopePath) {
+        runRecord.execution_envelope_path = envelopePath;
+        runRecord.execution_contract = this.orchestratorService.getContractForStage(stageForRun.stage_id) || null;
+        runRecord.output_contract = this.orchestratorService.getOutputContractForStage(stageForRun.stage_id) || null;
+        if (!runRecord.launch_strategy) {
+          runRecord.launch_strategy = this.orchestratorService.getLaunchStrategy(preferredAgent || run.suggested_runtime_agent || '', envelopePath).strategy;
+        }
+        writeJsonAtomic(this.runCoordinatorService.runsFile, runsData);
+      }
+    }
+
+    return {
+      envelopePath,
+      launchStrategy: this.orchestratorService.getLaunchStrategy(preferredAgent || run.suggested_runtime_agent || '', envelopePath).strategy
+    };
+  }
+
+  createRunSessionClusterEntry(store, opts = {}) {
+    const {
+      product,
+      run,
+      stageForRun,
+      previousHandoff,
+      workingDir,
+      workspaceId,
+      selectedPreset,
+      basePrompt,
+      spec,
+      model = '',
+      effort = ''
+    } = opts;
+    const envelope = this.ensureRunEnvelope(run, product, stageForRun, previousHandoff, spec.agent);
+    const session = store.createSession({
+      name: `${product.name} - ${stageForRun.label} - ${spec.suffix}`,
+      workspaceId,
+      agent: spec.agent,
+      workingDir,
+      model: spec.sessionRole === 'orchestrator' ? model : '',
+      effort: spec.sessionRole === 'orchestrator' ? effort : '',
+      resumeSessionId: '',
+      productId: product.product_id,
+      runId: run.run_id,
+      stageId: stageForRun.stage_id,
+      role: spec.role || stageForRun.recommended_role || '',
+      sessionRole: spec.sessionRole || '',
+      workerKind: spec.workerKind || '',
+      workerPreset: stageForRun.stage_id,
+      displayOrder: spec.displayOrder || 0,
+      promptSeed: buildClusterPrompt(basePrompt, spec, run, stageForRun),
+      launchStrategy: envelope.launchStrategy,
+      executionEnvelopePath: envelope.envelopePath || '',
+      knowledgePackId: selectedPreset?.knowledge_pack_id || '',
+      knowledgePackName: selectedPreset?.knowledge_pack_name || '',
+      presetType: selectedPreset?.preset_type || '',
+      presetId: selectedPreset?.preset_id || '',
+      presetLabel: selectedPreset?.preset_label || ''
+    });
+    this.runCoordinatorService.attachSession(run.run_id, session);
+    return session;
+  }
+
+  ensureRunClusterSessions(run, product, stageForRun, opts = {}) {
+    const clusterPreset = getStageClusterPreset(stageForRun.stage_id, stageForRun);
+    const existingSessions = sortClusterSessions(opts.existingSessions || []);
+    const sessionsByKey = new Map();
+    const hasExplicitOrchestrator = existingSessions.some((session) => String(session.sessionRole || '').trim() === 'orchestrator');
+    existingSessions.forEach((session, index) => {
+      const inferredRole = !hasExplicitOrchestrator && index === 0 ? 'orchestrator' : '';
+      const role = String(session.sessionRole || inferredRole).trim();
+      const workerKind = String(session.workerKind || '').trim();
+      const key = role === 'orchestrator' ? 'orchestrator' : `worker:${workerKind || session.agent || session.id}`;
+      if (!sessionsByKey.has(key)) {
+        const normalizedSession = role ? { ...session, sessionRole: role, workerKind: workerKind || (role === 'orchestrator' ? 'orchestrator' : session.workerKind || ''), displayOrder: role === 'orchestrator' ? 0 : session.displayOrder } : session;
+        if (opts.store && typeof opts.store.updateSession === 'function' && normalizedSession.id && (normalizedSession.sessionRole !== session.sessionRole || normalizedSession.workerKind !== session.workerKind || normalizedSession.displayOrder !== session.displayOrder)) {
+          opts.store.updateSession(normalizedSession.id, {
+            sessionRole: normalizedSession.sessionRole || '',
+            workerKind: normalizedSession.workerKind || '',
+            workerPreset: normalizedSession.workerPreset || stageForRun.stage_id,
+            displayOrder: normalizedSession.displayOrder || 0
+          });
+        }
+        sessionsByKey.set(key, normalizedSession);
+      }
+    });
+
+    const createdSessions = [];
+    for (const spec of clusterPreset.sessions || []) {
+      const key = spec.sessionRole === 'orchestrator' ? 'orchestrator' : `worker:${spec.workerKind || spec.agent}`;
+      if (sessionsByKey.has(key)) continue;
+      const created = this.createRunSessionClusterEntry(opts.store, {
+        product,
+        run,
+        stageForRun,
+        previousHandoff: opts.previousHandoff || null,
+        workingDir: opts.workingDir || '',
+        workspaceId: opts.workspaceId || '',
+        selectedPreset: opts.selectedPreset || null,
+        basePrompt: opts.basePrompt || '',
+        spec,
+        model: opts.model || '',
+        effort: opts.effort || ''
+      });
+      sessionsByKey.set(key, created);
+      createdSessions.push(created);
+    }
+
+    const combined = sortClusterSessions(Array.from(sessionsByKey.values()));
+    const primarySession = combined.find((session) => (session.sessionRole || '') === 'orchestrator') || combined[0] || null;
+    return {
+      sessions: combined,
+      createdSessions,
+      primarySession,
+      terminalLayout: clusterPreset.terminalLayout || (combined.length > 2 ? 4 : 2)
+    };
   }
 
   updateProductWorkspace(productId, workspace, opts = {}) {
@@ -1194,6 +1482,7 @@ class ProductService {
       }, linkedWorkspace),
       platform: {
         template: 'standard-product-v1',
+        artifact_tracking: createMinimalStructure ? 'managed' : 'manual',
         manifest_path: createMinimalStructure ? '.platform/product.json' : '',
         runbook_path: createMinimalStructure ? 'docs/runbook.md' : '',
         spec_path: createMinimalStructure ? 'docs/spec.md' : ''
@@ -1300,7 +1589,7 @@ class ProductService {
       const isRepo = await this.gitOrchestrator.isRepo(workingDir);
       if (isRepo) {
         try {
-          const baselineHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-baseline] Stage Completed: ${payload.to_stage || payload.from_stage || 'Unknown'}`);
+          const baselineHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-baseline] Stage Completed: ${payload.to_stage || payload.from_stage || 'Unknown'}`, workingDir);
           if (baselineHash) handoff.baseline_hash = baselineHash;
         } catch (e) {
           console.error('[Milestone 4A] Failed to create Stage Baseline:', e);
@@ -1506,13 +1795,23 @@ class ProductService {
     let preRunHash = '';
     if (workingDir) {
       const isRepo = await this.gitOrchestrator.isRepo(workingDir);
-      if (isRepo) {
-        const isDirty = await this.gitOrchestrator.isDirty(workingDir);
-        if (isDirty) {
-          return { error: 'Working directory has uncommitted changes. Please commit or stash them before starting an AI run to ensure a safe checkpoint.', status: 400 };
+      if (isRepo && stageRequiresCleanGit(stageId)) {
+        let dirtyState = null;
+        if (typeof this.gitOrchestrator.getDirtyState === 'function') {
+          dirtyState = await this.gitOrchestrator.getDirtyState(workingDir, workingDir);
+        } else {
+          const isDirty = await this.gitOrchestrator.isDirty(workingDir);
+          dirtyState = {
+            dirty: !!isDirty,
+            blockingEntries: []
+          };
+        }
+
+        if (dirtyState.dirty) {
+          return { error: formatStartStageDirtyError(workingDir, dirtyState), status: 400 };
         }
         try {
-          preRunHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`);
+          preRunHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`, workingDir);
         } catch (e) {
           console.error('[Milestone 4A] Failed to create Pre-Run Checkpoint:', e);
         }
@@ -1522,7 +1821,7 @@ class ProductService {
     const agent = payload.runtimeAgent || stage.recommendedRuntimeAgent;
     const model = payload.model || '';
     const effort = payload.effort || '';
-    const role = stage.recommendedRole;
+    const role = payload.role || stage.recommendedRole;
     const sessionName = payload.name || `${product.name} - ${stage.label}`;
     const stageForRun = {
       stage_id: stage.id,
@@ -1594,6 +1893,10 @@ class ProductService {
       runId: run.run_id,
       stageId,
       role,
+      sessionRole: payload.sessionRole || '',
+      workerKind: payload.workerKind || '',
+      workerPreset: payload.workerPreset || '',
+      displayOrder: payload.displayOrder || 0,
       promptSeed,
       // Milestone 3A: launch strategy and envelope path for PtyManager
       launchStrategy: launchStrategyResult.strategy,
@@ -1620,45 +1923,70 @@ class ProductService {
     if (action.run_id) {
       const currentRun = detail.current_run;
       if (currentRun && currentRun.run_id === action.run_id) {
-        const currentSession = (currentRun.linked_sessions || [])[0] || null;
-        if (currentSession) {
-          const updatedRun = this.runCoordinatorService.createOrReuseRun(detail, {
-            stage_id: currentRun.stage_id,
-            label: currentRun.stage_label,
-            goal: currentRun.objective,
-            recommended_role: currentRun.role,
-            recommended_runtime_agent: currentRun.suggested_runtime_agent,
-            required_artifacts: (detail.pipeline || []).find((stage) => stage.stage_id === currentRun.stage_id)?.required_artifacts || []
-          }, {
-            objective: currentRun.objective,
-            role: currentRun.role,
-            suggested_runtime_agent: currentRun.suggested_runtime_agent,
-            workspace_id: currentRun.workspace_id,
-            expected_outputs: currentRun.expected_outputs,
-            action_label: action.label,
-            knowledge_pack_id: action.knowledge_pack_id || currentRun.knowledge_pack_id || '',
-            knowledge_pack_name: action.knowledge_pack_name || currentRun.knowledge_pack_name || '',
-            preset_type: action.preset_type || currentRun.preset_type || '',
-            preset_id: action.preset_id || currentRun.preset_id || '',
-            preset_label: action.preset_label || currentRun.preset_label || '',
-            preset_origin: action.preset_origin || currentRun.preset_origin || 'next-action'
-          });
-          return {
-            action,
-            product: detail,
-            run: updatedRun,
-            session: currentSession,
-            reused: true
-          };
-        }
+        const stageForRun = {
+          stage_id: currentRun.stage_id,
+          label: currentRun.stage_label,
+          goal: currentRun.objective,
+          recommended_role: currentRun.role,
+          recommended_runtime_agent: currentRun.suggested_runtime_agent,
+          required_artifacts: (detail.pipeline || []).find((stage) => stage.stage_id === currentRun.stage_id)?.required_artifacts || []
+        };
+        const updatedRun = this.runCoordinatorService.createOrReuseRun(detail, stageForRun, {
+          objective: currentRun.objective,
+          role: currentRun.role,
+          suggested_runtime_agent: currentRun.suggested_runtime_agent,
+          workspace_id: currentRun.workspace_id,
+          expected_outputs: currentRun.expected_outputs,
+          action_label: action.label,
+          knowledge_pack_id: action.knowledge_pack_id || currentRun.knowledge_pack_id || '',
+          knowledge_pack_name: action.knowledge_pack_name || currentRun.knowledge_pack_name || '',
+          preset_type: action.preset_type || currentRun.preset_type || '',
+          preset_id: action.preset_id || currentRun.preset_id || '',
+          preset_label: action.preset_label || currentRun.preset_label || '',
+          preset_origin: action.preset_origin || currentRun.preset_origin || 'next-action'
+        });
+        const selectedPreset = currentRun.knowledge_driver || (currentRun.knowledge_pack_id ? {
+          knowledge_pack_id: currentRun.knowledge_pack_id,
+          knowledge_pack_name: currentRun.knowledge_pack_name || currentRun.knowledge_pack_id,
+          preset_type: currentRun.preset_type || '',
+          preset_id: currentRun.preset_id || '',
+          preset_label: currentRun.preset_label || currentRun.preset_id || ''
+        } : null);
+        const previousHandoff = (currentRun.incoming_handoffs || [])[0] || null;
+        const cluster = this.ensureRunClusterSessions(updatedRun, detail, stageForRun, {
+          store,
+          existingSessions: currentRun.linked_sessions || [],
+          previousHandoff,
+          workingDir: payload.workingDir || detail.repo?.local_path || detail.workspace?.current_working_dir || '',
+          workspaceId: currentRun.workspace_id || detail.workspace?.runtime_workspace_id || '',
+          selectedPreset,
+          basePrompt: buildGuidedPrompt(detail, stageForRun, updatedRun, updatedRun.expected_outputs || currentRun.expected_outputs || [], previousHandoff),
+          model: payload.model || '',
+          effort: payload.effort || ''
+        });
+        return {
+          action,
+          product: detail,
+          run: updatedRun,
+          session: cluster.primarySession,
+          sessions: cluster.sessions,
+          primary_session_id: cluster.primarySession ? cluster.primarySession.id : '',
+          terminal_layout: cluster.terminalLayout,
+          reused: cluster.createdSessions.length === 0
+        };
       }
     }
 
     const runtimeAgent = payload.runtimeAgent || action.recommended_runtime_agent || '';
-    const name = payload.name || `${detail.name} - ${action.step_id} run`;
+    const name = payload.name || `${detail.name} - ${action.step_id} Orchestrator`;
     const result = await this.startStage(productId, action.step_id, {
       ...payload,
       runtimeAgent,
+      sessionRole: 'orchestrator',
+      workerKind: 'orchestrator',
+      workerPreset: action.step_id,
+      displayOrder: 0,
+      role: 'stage-orchestrator',
       objective: action.objective || '',
       actionLabel: action.label,
       name,
@@ -1671,9 +1999,31 @@ class ProductService {
     }, store);
 
     if (result.error) return result;
+    const selectedPreset = result.run.knowledge_driver || (result.run.knowledge_pack_id ? {
+      knowledge_pack_id: result.run.knowledge_pack_id,
+      knowledge_pack_name: result.run.knowledge_pack_name || result.run.knowledge_pack_id,
+      preset_type: result.run.preset_type || '',
+      preset_id: result.run.preset_id || '',
+      preset_label: result.run.preset_label || result.run.preset_id || ''
+    } : null);
+    const cluster = this.ensureRunClusterSessions(result.run, result.product, result.stage, {
+      store,
+      existingSessions: [result.session].filter(Boolean),
+      previousHandoff: result.previous_handoff || null,
+      workingDir: payload.workingDir || result.product?.repo?.local_path || result.product?.workspace?.current_working_dir || '',
+      workspaceId: result.run.workspace_id || result.product?.workspace?.runtime_workspace_id || '',
+      selectedPreset,
+      basePrompt: result.session?.promptSeed || buildGuidedPrompt(result.product, result.stage, result.run, result.run.expected_outputs || [], result.previous_handoff || null),
+      model: payload.model || '',
+      effort: payload.effort || ''
+    });
     return {
       action,
       ...result,
+      session: cluster.primarySession || result.session,
+      sessions: cluster.sessions,
+      primary_session_id: cluster.primarySession ? cluster.primarySession.id : (result.session?.id || ''),
+      terminal_layout: cluster.terminalLayout,
       reused: false
     };
   }
