@@ -152,21 +152,34 @@ function createProductRoutes({ productService, knowledgePackService, store, ptyM
 
     let started = false;
     let pid = null;
-    if (result.session) {
-      const latestSession = store.getSession(result.session.id);
+    const startedSessionIds = [];
+    const clusterSessions = Array.isArray(result.sessions) && result.sessions.length
+      ? result.sessions
+      : (result.session ? [result.session] : []);
+    const hydratedSessions = [];
+    for (const clusterSession of clusterSessions) {
+      if (!clusterSession || !clusterSession.id) continue;
+      const latestSession = store.getSession(clusterSession.id) || clusterSession;
+      hydratedSessions.push({ ...latestSession, ...clusterSession });
       const isRunning = latestSession && latestSession.status === 'running';
       if (!isRunning) {
-        const pty = ptyManager.spawn(result.session.id, req.body || {});
+        const pty = ptyManager.spawn(clusterSession.id, req.body || {});
         started = true;
-        pid = pty.pid;
-      } else {
+        startedSessionIds.push(clusterSession.id);
+        if (clusterSession.id === (result.primary_session_id || result.session?.id || '')) {
+          pid = pty.pid;
+        }
+      } else if (clusterSession.id === (result.primary_session_id || result.session?.id || '')) {
         pid = latestSession.pid || null;
       }
     }
     res.status(201).json({
       ...result,
-      session: result.session ? (store.getSession(result.session.id) || result.session) : null,
+      session: result.session ? ({ ...(store.getSession(result.session.id) || result.session), ...((hydratedSessions.find((item) => item.id === result.session.id)) || {}) }) : null,
+      sessions: hydratedSessions,
+      primary_session_id: result.primary_session_id || (result.session ? result.session.id : ''),
       started,
+      started_session_ids: startedSessionIds,
       pid
     });
   });

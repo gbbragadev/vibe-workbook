@@ -695,16 +695,29 @@ test('product service hydrates current run with knowledge driver metadata when e
   const store = {
     createSession(payload) {
       created.push(payload);
-      return { id: 'sess-run', status: 'running', updatedAt: Date.now(), ...payload };
+      return { id: 'sess-run-' + created.length, status: 'running', updatedAt: Date.now(), ...payload };
     }
   };
 
   const result = await service.executeNextAction('zapcam', 'start:brief', { runtimeAgent: 'claude' }, store, [{ id: 'ws-zap', name: 'Zapcam Workspace' }], []);
-  const detail = service.getProductDetail('zapcam', [{ id: 'ws-zap', name: 'Zapcam Workspace' }], [
-    { id: 'sess-run', name: result.session.name, workspaceId: 'ws-zap', status: 'running', agent: 'claude', stageId: 'brief', role: 'product-designer', workingDir: repoDir, updatedAt: Date.now(), productId: 'zapcam', runId: result.run.run_id }
-  ]);
+  const detail = service.getProductDetail('zapcam', [{ id: 'ws-zap', name: 'Zapcam Workspace' }], created.map((session, index) => ({
+    id: 'sess-run-' + (index + 1),
+    name: session.name,
+    workspaceId: 'ws-zap',
+    status: 'running',
+    agent: session.agent,
+    stageId: session.stageId,
+    role: session.role,
+    sessionRole: session.sessionRole,
+    workerKind: session.workerKind,
+    displayOrder: session.displayOrder,
+    workingDir: repoDir,
+    updatedAt: Date.now(),
+    productId: 'zapcam',
+    runId: result.run.run_id
+  })));
 
-  assert.equal(created.length, 1);
+  assert.equal(created.length, 2);
   assert.ok(detail.current_run);
   assert.equal(detail.current_run.knowledge_pack_id, 'pm-skills');
   assert.equal(detail.current_run.knowledge_pack_name, 'PM Skills');
@@ -712,6 +725,8 @@ test('product service hydrates current run with knowledge driver metadata when e
   assert.equal(detail.current_run.preset_id, '/discover');
   assert.equal(detail.current_run.preset_label, '/discover');
   assert.equal(detail.current_run.preset_origin, 'next-action');
+  assert.equal(result.sessions.length, 2);
+  assert.equal(result.primary_session_id, result.session.id);
   assert.match(created[0].promptSeed, /Knowledge Pack: PM Skills/);
   assert.match(created[0].promptSeed, /Knowledge Preset: workflow \/discover/);
 });
@@ -1035,7 +1050,7 @@ test('product service executes next action by creating a run and linked session'
   const store = {
     createSession(payload) {
       created.push(payload);
-      return { id: 'sess-next', status: 'running', updatedAt: Date.now(), ...payload };
+      return { id: 'sess-next-' + created.length, status: 'running', updatedAt: Date.now(), ...payload };
     }
   };
 
@@ -1048,7 +1063,12 @@ test('product service executes next action by creating a run and linked session'
   assert.equal(result.run.stage_id, 'brief');
   assert.equal(result.session.runId, result.run.run_id);
   assert.equal(result.session.agent, 'gemini');
-  assert.equal(created.length, 1);
+  assert.equal(created.length, 2);
+  assert.equal(result.sessions.length, 2);
+  assert.equal(result.primary_session_id, result.session.id);
+  assert.equal(result.terminal_layout, 2);
+  assert.equal(created[0].sessionRole, 'orchestrator');
+  assert.equal(created[1].sessionRole, 'worker');
   assert.equal(created[0].runId, result.run.run_id);
   assert.match(created[0].promptSeed, new RegExp(result.run.run_id));
 });
@@ -1155,7 +1175,7 @@ test('product service falls back safely when stage has no knowledge recommendati
   assert.equal(action.preset_label || '', '');
 });
 
-test('product service reuses active run and session when executing continue action', async () => {
+test('product service reuses active run cluster when executing continue action', async () => {
   const dir = makeTempDir();
   const repoDir = path.join(dir, 'repo');
   fs.mkdirSync(repoDir, { recursive: true });
@@ -1207,7 +1227,19 @@ test('product service reuses active run and session when executing continue acti
     id: 'sess-existing',
     name: 'Existing Brief',
     agent: 'claude',
-    workspaceId: 'ws-2'
+    workspaceId: 'ws-2',
+    sessionRole: 'orchestrator',
+    workerKind: 'orchestrator',
+    displayOrder: 0
+  });
+  service.runCoordinatorService.attachSession(run.run_id, {
+    id: 'sess-worker',
+    name: 'Brief Worker',
+    agent: 'gemini',
+    workspaceId: 'ws-2',
+    sessionRole: 'worker',
+    workerKind: 'brief-analyst',
+    displayOrder: 1
   });
 
   const workspaces = [{ id: 'ws-2', name: 'Workspace 2' }];
@@ -1222,7 +1254,25 @@ test('product service reuses active run and session when executing continue acti
     workingDir: repoDir,
     updatedAt: Date.now(),
     productId: 'p2',
-    runId: run.run_id
+    runId: run.run_id,
+    sessionRole: 'orchestrator',
+    workerKind: 'orchestrator',
+    displayOrder: 0
+  }, {
+    id: 'sess-worker',
+    name: 'Brief Worker',
+    workspaceId: 'ws-2',
+    status: 'running',
+    agent: 'gemini',
+    stageId: 'brief',
+    role: 'brief-analyst',
+    workingDir: repoDir,
+    updatedAt: Date.now() - 1,
+    productId: 'p2',
+    runId: run.run_id,
+    sessionRole: 'worker',
+    workerKind: 'brief-analyst',
+    displayOrder: 1
   }];
   const detail = service.getProductDetail('p2', workspaces, sessions);
   const action = detail.next_actions.find((item) => item.action_type === 'continue-run');
@@ -1240,9 +1290,69 @@ test('product service reuses active run and session when executing continue acti
   assert.equal(result.reused, true);
   assert.equal(result.run.run_id, run.run_id);
   assert.equal(result.session.id, 'sess-existing');
+  assert.equal(result.sessions.length, 2);
+  assert.equal(result.primary_session_id, 'sess-existing');
   assert.equal(createCalls, 0);
   const reusedRun = service.runCoordinatorService.getRunById(run.run_id);
   assert.ok(reusedRun.produced_outputs.some((output) => output.type === 'action' && output.label === action.label));
+});
+
+test('product service creates release cluster with orchestrator and workers', async () => {
+  const dir = makeTempDir();
+  const repoDir = path.join(dir, 'release-repo');
+  fs.mkdirSync(repoDir, { recursive: true });
+  const registryFile = path.join(dir, 'products.json');
+  fs.writeFileSync(registryFile, JSON.stringify({
+    version: 1,
+    products: [
+      {
+        product_id: 'release-product',
+        name: 'Release Product',
+        slug: 'release-product',
+        status: 'active',
+        stage: 'build',
+        owner: 'guibr',
+        category: 'product',
+        summary: 'release summary',
+        repo: { local_path: repoDir },
+        workspace: { runtime_workspace_id: 'ws-release', current_working_dir: repoDir, path_status: 'valid' },
+        platform: {},
+        governance: {}
+      }
+    ]
+  }, null, 2));
+
+  const service = makeProductService(dir, { registryFile });
+  const action = {
+    id: 'start:release',
+    action_type: 'start-run',
+    step_id: 'release',
+    label: 'Start Release run',
+    executable: true,
+    objective: 'Prepare release readiness',
+    recommended_runtime_agent: 'claude'
+  };
+  const originalDetail = service.getProductDetail.bind(service);
+  service.getProductDetail = function(productId, workspaces, sessions) {
+    const detail = originalDetail(productId, workspaces, sessions);
+    detail.next_actions = [action];
+    return detail;
+  };
+
+  const created = [];
+  const store = {
+    createSession(payload) {
+      created.push(payload);
+      return { id: 'sess-release-' + created.length, status: 'running', updatedAt: Date.now(), ...payload };
+    }
+  };
+
+  const result = await service.executeNextAction('release-product', action.id, {}, store, [{ id: 'ws-release', name: 'Release Workspace' }], []);
+
+  assert.equal(result.sessions.length, 4);
+  assert.equal(result.terminal_layout, 4);
+  assert.equal(result.session.sessionRole, 'orchestrator');
+  assert.deepEqual(created.map(item => item.sessionRole), ['orchestrator', 'worker', 'worker', 'worker']);
 });
 
 test('product service uses latest incoming handoff to enrich next action continuity and guided prompt', async () => {
