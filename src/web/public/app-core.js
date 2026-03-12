@@ -582,36 +582,39 @@
     const readyStage = (product.pipeline || []).find(step => step && step.status === 'ready');
 
     if (currentRun && currentRun.stage_id && currentRun.stage_id !== 'idea' && currentRun.is_ready_to_complete) {
+      var completeStageLabel = App.formatStageLabel(currentRun.stage_id, product);
       return {
         action: 'complete-stage',
-        label: 'Finish stage',
-        description: 'This run already has enough evidence to close the current stage.',
+        label: 'Finalizar ' + completeStageLabel + ' \u2192',
+        description: 'Este run j\u00e1 possui evid\u00eancias suficientes para fechar o stage atual.',
         stageId: currentRun.stage_id
       };
     }
     if (nextAction) {
+      var nextStageLabel = App.formatStageLabel(nextAction.step_id || nextAction.stage_id || '', product);
       return {
         action: 'execute-next-action',
-        label: currentRun ? 'Execute next step' : 'Continue stage',
-        description: nextAction.label || nextAction.reason || 'Use the next recommended action for this product.',
+        label: 'Continuar ' + nextStageLabel + ' \u2192',
+        description: nextAction.label || nextAction.reason || 'Execute a pr\u00f3xima a\u00e7\u00e3o recomendada para este produto.',
         actionId: nextAction.id || '',
         stageId: nextAction.step_id || nextAction.stage_id || ''
       };
     }
     if (readyStage) {
+      var readyStageLabel = App.formatStageLabel(readyStage.stage_id, product);
       return {
         action: 'start-stage',
-        label: 'Start ready stage',
-        description: readyStage.goal || (readyStage.label + ' is ready to continue.'),
+        label: 'Iniciar ' + readyStageLabel + ' \u2192',
+        description: readyStage.goal || (readyStageLabel + ' est\u00e1 pronto para continuar.'),
         stageId: readyStage.stage_id
       };
     }
     return {
       action: 'open-detail',
-      label: 'Open product',
+      label: 'Ver detalhes',
       description: currentRun
-        ? 'Review the active run and decide the next move.'
-        : 'Open the product cockpit to review the current state.'
+        ? 'Revise o run ativo e decida o pr\u00f3ximo passo.'
+        : 'Abra o cockpit do produto para revisar o estado atual.'
     };
   }
 
@@ -654,38 +657,46 @@
     const detail = document.getElementById('product-detail');
 
     if (!state.products.length) {
-      summary.textContent = 'No products registered.';
-      overview.innerHTML = '<div class="empty-state"><h3>No products yet</h3><p>Products are the center of your workflow. Create your first product to start tracking stages, artifacts, and readiness.</p><button class="btn btn-primary" onclick="App.showProductWizard()">+ Create Product</button></div>';
-      detail.innerHTML = '<div class="empty-state"><h3>Select a product</h3><p>Choose a product from the list to see its pipeline, readiness, and copilot guidance.</p></div>';
+      summary.textContent = 'Nenhum produto registrado.';
+      overview.innerHTML = '<div class="empty-state"><h3>Nenhum produto ainda</h3><p>Produtos s\u00e3o o centro do seu workflow. Crie o primeiro para come\u00e7ar a acompanhar stages, artefatos e readiness.</p><button class="btn btn-primary" onclick="App.showProductWizard()">+ Criar Produto</button></div>';
+      detail.innerHTML = '<div class="empty-state"><h3>Selecione um produto</h3><p>Escolha um produto da lista para ver seu pipeline, readiness e orienta\u00e7\u00e3o do copilot.</p></div>';
       return;
     }
 
     if (!state.activeProductId || !state.products.find(p => p.product_id === state.activeProductId)) state.activeProductId = state.products[0].product_id;
 
-    summary.textContent = state.products.length + ' registered products';
+    summary.textContent = state.products.length + ' produto' + (state.products.length !== 1 ? 's' : '') + ' registrado' + (state.products.length !== 1 ? 's' : '');
     overview.innerHTML = state.products.map(product => {
       const artifact = product.artifact_summary || { present: 0, total: 0 };
       const nextAction = (product.next_actions || [])[0];
       const knowledgeSummary = product.knowledge_summary || { active_packs: 0, active_pack_names: [] };
       const currentRun = App.resolveCurrentRun(product);
       const primaryAction = App.resolveOverviewPrimaryAction(product);
-      const productStatus = (product.pipeline || []).some(step => step.status === 'in-progress')
-        ? 'in-progress'
-        : ((product.pipeline || []).some(step => step.status === 'ready') ? 'ready' : 'not-started');
       const stageLabel = currentRun ? (currentRun.stage_label || currentRun.stage_id || 'active run') : (product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea');
-      const readinessLabel = (product.readiness && product.readiness.status) ? String(product.readiness.status).replace(/-/g, ' ') : 'not assessed';
-      const workspaceWarning = (product.workspace || {}).path_status && (product.workspace || {}).path_status !== 'valid'
-        ? '<span class="chip warn">runtime workspace needs attention</span>'
-        : '';
-      return '<article class="product-card ' + (product.product_id === state.activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +
-        '<div class="product-card-top"><div><div class="product-card-name">' + App.esc(product.name) + '</div>' +
-        '<div class="chip-row" style="margin-top:6px"><span class="chip">' + App.esc(product.category) + '</span><span class="chip subtle">stage: ' + App.esc(stageLabel) + '</span>' + workspaceWarning + '</div></div>' +
-        '<span class="status-pill ' + productStatus + '">' + App.stageStatusLabel(productStatus) + '</span></div>' +
-        '<div class="product-card-summary">' + App.esc(product.summary || 'No product summary available.') + '</div>' +
-        '<div class="product-card-stats"><div class="product-stat"><div class="product-stat-label">Artifacts</div><div class="product-stat-value">' + artifact.present + '/' + artifact.total + '</div></div><div class="product-stat"><div class="product-stat-label">Sessions</div><div class="product-stat-value">' + ((product.related_sessions || []).length) + '</div></div><div class="product-stat"><div class="product-stat-label">Readiness</div><div class="product-stat-value">' + App.esc(readinessLabel) + '</div></div><div class="product-stat"><div class="product-stat-label">Knowledge</div><div class="product-stat-value">' + App.esc(String(knowledgeSummary.active_packs || 0)) + '</div></div></div>' +
-        '<div class="chip-row knowledge-chip-row" style="margin-top:10px">' + App.buildKnowledgePackChips(product.active_knowledge_packs || [], true) + '</div>' +
-        (currentRun ? '<div class="product-card-run"><span class="product-card-run-label">Current run</span><strong>' + App.esc(App.formatStageSignalLabel(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active', product)) + '</strong><span class="artifact-row-meta">' + App.esc(currentRun.objective || 'Coordinated execution in progress.') + '</span></div>' : '') +
-        '<div class="product-card-footer"><div><div class="product-card-next-label">Recommended next move</div><div class="artifact-row-meta" style="margin-top:4px">' + App.esc(primaryAction ? primaryAction.description : (nextAction ? nextAction.label : 'Review the product detail to decide the next move.')) + '</div></div><div class="product-card-footer-actions">' + App.buildOverviewPrimaryActionButton(product, primaryAction) + '</div></div>' +
+      const trafficLight = (product.readiness && product.readiness.traffic_light) || 'red';
+      const readinessLabel = (product.readiness && product.readiness.status) ? String(product.readiness.status).replace(/-/g, ' ') : 'n\u00e3o avaliado';
+      const summaryText = product.summary || 'Sem descri\u00e7\u00e3o dispon\u00edvel.';
+      return '<article class="product-card product-card-simplified ' + (product.product_id === state.activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +
+        '<div class="product-card-top">' +
+          '<div class="product-card-name-row"><span class="semaphore-dot semaphore-' + App.esc(trafficLight) + '"></span><span class="product-card-name">' + App.esc(product.name) + '</span></div>' +
+          '<span class="chip stage-chip">' + App.esc(App.formatStageLabel(stageLabel, product)) + '</span>' +
+        '</div>' +
+        '<div class="product-card-summary">' + App.esc(summaryText) + '</div>' +
+        '<div class="product-card-cta">' +
+          '<div class="product-card-next-label">Pr\u00f3ximo passo</div>' +
+          '<div class="artifact-row-meta" style="margin-top:4px">' + App.esc(primaryAction ? primaryAction.description : (nextAction ? nextAction.label : 'Revise o detalhe do produto para decidir o pr\u00f3ximo passo.')) + '</div>' +
+          '<div class="product-card-footer-actions">' + App.buildOverviewPrimaryActionButton(product, primaryAction) + '</div>' +
+        '</div>' +
+        '<details class="product-card-tech-details"><summary>Ver detalhes t\u00e9cnicos</summary>' +
+          '<div class="product-card-stats">' +
+            '<div class="product-stat"><div class="product-stat-label">Artefatos</div><div class="product-stat-value">' + artifact.present + '/' + artifact.total + '</div></div>' +
+            '<div class="product-stat"><div class="product-stat-label">Sess\u00f5es</div><div class="product-stat-value">' + ((product.related_sessions || []).length) + '</div></div>' +
+            '<div class="product-stat"><div class="product-stat-label">Readiness</div><div class="product-stat-value">' + App.esc(readinessLabel) + '</div></div>' +
+            '<div class="product-stat"><div class="product-stat-label">Knowledge</div><div class="product-stat-value">' + App.esc(String(knowledgeSummary.active_packs || 0)) + '</div></div>' +
+          '</div>' +
+          (currentRun ? '<div class="product-card-run"><span class="product-card-run-label">Run ativo</span><strong>' + App.esc(App.formatStageSignalLabel(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active', product)) + '</strong><span class="artifact-row-meta">' + App.esc(currentRun.objective || 'Execu\u00e7\u00e3o coordenada em andamento.') + '</span></div>' : '') +
+          '<div class="chip-row knowledge-chip-row" style="margin-top:10px">' + App.buildKnowledgePackChips(product.active_knowledge_packs || [], true) + '</div>' +
+        '</details>' +
         '</article>';
     }).join('');
 
