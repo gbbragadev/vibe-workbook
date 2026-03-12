@@ -1,30 +1,37 @@
 {
-  "name": "vibe-workbook",
-  "version": "1.0.0",
-  "description": "Multi-agent workspace manager for vibe coding — Claude Code, Codex CLI, Antigravity",
-  "main": "src/gui.js",
-  "bin": {
-    "vibe-workbook": "./src/gui.js",
-    "vibe": "./src/gui.js"
-  },
-  "scripts": {
-    "gui": "node src/gui.js",
-    "gui:demo": "node src/gui.js --demo",
-    "start": "node src/gui.js",
-    "test": "node --test"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "dependencies": {
-    "chalk": "^4.1.2",
-    "cheerio": "^1.2.0",
-    "express": "^4.22.1",
-    "node-pty": "^1.0.0",
-    "ws": "^8.19.0"
-  },
-  "license": "MIT",
-  "devDependencies": {
-    "@playwright/test": "^1.58.2"
-  }
+    "name": "vibe-workbook",
+    "version": "1.0.0",
+    "description": "Multi-agent workspace manager for vibe coding â€” Claude Code, Codex CLI, Antigravity",
+    "main": "src/gui.js",
+    "bin": {
+        "vibe-workbook": "./src/gui.js",
+        "vibe": "./src/gui.js"
+    },
+    "scripts": {
+        "gui": "node src/gui.js",
+        "gui:demo": "node src/gui.js --demo",
+        "start": "node src/gui.js",
+        "test": "node --test",
+        "test:sync": "node scripts/sync-tests.js",
+        "test:sync:generate": "node scripts/sync-tests.js --generate",
+        "test:sync:watch": "node scripts/sync-tests.js --watch",
+        "test:e2e": "npx playwright test",
+        "test:e2e:full": "npx playwright test e2e/full-suite/complete.spec.js",
+        "cockpit": "node cockpit/cli.js"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "dependencies": {
+        "chalk": "^4.1.2",
+        "cheerio": "^1.2.0",
+        "express": "^4.22.1",
+        "js-yaml": "^4.1.1",
+        "node-pty": "^1.0.0",
+        "ws": "^8.19.0"
+    },
+    "license": "MIT",
+    "devDependencies": {
+        "@playwright/test": "^1.58.2"
+    }
 }

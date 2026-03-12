@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Idea Backlog</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117; color: #e2e8f0;
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 2rem 1rem;
+    }
+    h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem; color: #a78bfa; }
+    .card {
+      background: #1e2130; border: 1px solid #2d3148; border-radius: 12px;
+      padding: 1.5rem; width: 100%; max-width: 560px; margin-bottom: 1.5rem;
+    }
+    .form-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+    input[type="text"] {
+      flex: 1 1 200px; padding: 0.6rem 0.9rem; border-radius: 8px;
+      border: 1px solid #3b3f5c; background: #12141f; color: #e2e8f0;
+      font-size: 0.95rem; outline: none;
+    }
+    input[type="text"]:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.3); }
+    select {
+      padding: 0.6rem 0.9rem; border-radius: 8px; border: 1px solid #3b3f5c;
+      background: #12141f; color: #e2e8f0; font-size: 0.95rem; cursor: pointer; outline: none;
+    }
+    select:focus { border-color: #7c3aed; }
+    button.add-btn {
+      padding: 0.6rem 1.2rem; border-radius: 8px; border: none;
+      background: #7c3aed; color: #fff; font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; transition: background 0.15s;
+    }
+    button.add-btn:hover { background: #6d28d9; }
+    .idea-list {
+      list-style: none; width: 100%; max-width: 560px;
+      display: flex; flex-direction: column; gap: 0.6rem;
+    }
+    .idea-item {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #1e2130; border: 1px solid #2d3148; border-radius: 10px;
+      padding: 0.75rem 1rem; gap: 0.75rem;
+    }
+    .idea-title { flex: 1; font-size: 0.95rem; }
+    .priority-badge {
+      font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.55rem;
+      border-radius: 6px; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .priority-high   { background: #7f1d1d; color: #fca5a5; }
+    .priority-medium { background: #78350f; color: #fcd34d; }
+    .priority-low    { background: #14532d; color: #86efac; }
+    .remove-btn {
+      background: transparent; border: 1px solid #4b5563; border-radius: 6px;
+      color: #9ca3af; cursor: pointer; font-size: 0.8rem; padding: 0.25rem 0.6rem;
+      transition: all 0.15s;
+    }
+    .remove-btn:hover { background: #7f1d1d; border-color: #ef4444; color: #fca5a5; }
+    .empty-state { color: #4b5563; font-size: 0.9rem; text-align: center; padding: 1.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Idea Backlog</h1>
+  <div class="card">
+    <div class="form-row">
+      <input type="text" data-testid="idea-title-input" id="idea-title-input" placeholder="Describe your idea…" />
+      <select data-testid="idea-priority-select" id="idea-priority-select">
+        <option value="high">High</option>
+        <option value="medium" selected>Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <button class="add-btn" data-testid="add-idea-btn" id="add-idea-btn">Add</button>
+    </div>
+  </div>
+  <ul class="idea-list" data-testid="idea-list" id="idea-list"></ul>
+  <script>
+    const STORAGE_KEY = 'idea-backlog-v1';
+    function loadIdeas() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+      catch { return []; }
+    }
+    function saveIdeas(ideas) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+    }
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function buildIdeaItem(idea, idx) {
+      const li = document.createElement('li');
+      li.className = 'idea-item';
+      li.setAttribute('data-testid', 'idea-item');
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'idea-title';
+      titleSpan.textContent = idea.title;
+
+      const badge = document.createElement('span');
+      badge.className = 'priority-badge priority-' + idea.priority;
+      badge.textContent = idea.priority;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-btn';
+      removeBtn.setAttribute('data-testid', 'remove-idea-btn');
+      removeBtn.setAttribute('data-idx', String(idx));
+      removeBtn.textContent = 'Remove';
+      removeBtn.addEventListener('click', function() {
+        var ideas = loadIdeas();
+        ideas.splice(idx, 1);
+        saveIdeas(ideas);
+        renderIdeas(ideas);
+      });
+
+      li.appendChild(titleSpan);
+      li.appendChild(badge);
+      li.appendChild(removeBtn);
+      return li;
+    }
+    function renderIdeas(ideas) {
+      var list = document.getElementById('idea-list');
+      while (list.firstChild) { list.removeChild(list.firstChild); }
+      if (ideas.length === 0) {
+        var empty = document.createElement('li');
+        empty.className = 'empty-state';
+        empty.textContent = 'No ideas yet — add one above!';
+        list.appendChild(empty);
+        return;
+      }
+      ideas.forEach(function(idea, idx) {
+        list.appendChild(buildIdeaItem(idea, idx));
+      });
+    }
+    document.getElementById('add-idea-btn').addEventListener('click', function() {
+      var titleInput = document.getElementById('idea-title-input');
+      var prioritySelect = document.getElementById('idea-priority-select');
+      var title = titleInput.value.trim();
+      if (!title) { titleInput.focus(); return; }
+      var ideas = loadIdeas();
+      ideas.unshift({ title: title, priority: prioritySelect.value });
+      saveIdeas(ideas);
+      renderIdeas(ideas);
+      titleInput.value = '';
+      titleInput.focus();
+    });
+    document.getElementById('idea-title-input').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('add-idea-btn').click();
+    });
+    renderIdeas(loadIdeas());
+  </script>
+</body>
+</html>
