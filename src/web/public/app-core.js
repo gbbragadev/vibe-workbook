@@ -727,20 +727,34 @@
     if (!readiness) return '';
     var light = readiness.traffic_light || 'red';
     var checklistHtml = (readiness.signals || []).map(function(s) {
+      var statusText = s.met ? ': criado' : ': falta criar';
       return '<div class="readiness-check ' + (s.met ? 'met' : 'unmet') + '">' +
-        (s.met ? '&#10003;' : '&#10007;') + ' ' + App.esc(s.label) + '</div>';
+        (s.met ? '&#10003; ' : '&#10007; ') + App.esc(s.label) + App.esc(statusText) + '</div>';
     }).join('');
-    var earlyStages = ['idea', 'brief', 'spec'];
     var currentStage = ((detail.product || {}).stage || '').toLowerCase();
-    var earlyStageHint = earlyStages.indexOf(currentStage) >= 0
-      ? '<div class="readiness-hint" style="padding:8px 16px;font-size:0.85em;opacity:0.7">Readiness builds as stages advance. Complete stages to accumulate evidence.</div>'
-      : '';
+    var actionHint = '';
+    if (light !== 'green') {
+      var currentIdx = App.STAGE_ORDER.indexOf(currentStage);
+      var nextStage = currentIdx >= 0 && currentIdx < App.STAGE_ORDER.length - 1
+        ? App.STAGE_ORDER[currentIdx + 1] : '';
+      if (nextStage) {
+        actionHint = '<div class="readiness-action-hint">' +
+          '<span>Inicie a stage ' + App.esc(nextStage) + '</span> ' +
+          '<button class="btn btn-sm" data-product-action="start-stage" data-stage-id="' + App.esc(nextStage) + '">Iniciar ' + App.esc(nextStage) + ' &rarr;</button>' +
+          '</div>';
+      } else if (currentStage === 'idea') {
+        actionHint = '<div class="readiness-action-hint">' +
+          '<span>Inicie a stage brief</span> ' +
+          '<button class="btn btn-sm" data-product-action="start-stage" data-stage-id="brief">Iniciar brief &rarr;</button>' +
+          '</div>';
+      }
+    }
 
     return '<section class="detail-panel"><div class="panel-header"><h3>Readiness</h3></div>' +
       '<div class="readiness-compact-body">' +
       '<div class="traffic-light-large traffic-light-' + App.esc(light) + '"></div>' +
       '<div class="readiness-checklist">' + checklistHtml + '</div>' +
-      '</div>' + earlyStageHint + '</section>';
+      '</div>' + actionHint + '</section>';
   }
 
   App.deriveReadinessDisplay = function deriveReadinessDisplay(readiness) {
@@ -1740,6 +1754,9 @@
     root.querySelectorAll('[data-lifecycle-action="submit-retrospective"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleSubmitRetrospective(detail.product_id); }); });
     root.querySelectorAll('[data-product-action="delete-product"]').forEach(function(el) { el.addEventListener('click', function() { App.deleteProduct(detail.product_id, detail.name); }); });
     root.querySelectorAll('[data-product-action="reset-lifecycle"]').forEach(function(el) { el.addEventListener('click', function() { App.resetProduct(detail.product_id, detail.name); }); });
+    root.querySelectorAll('.artifact-row[data-clickable]').forEach(function(el) {
+      el.addEventListener('click', function() { App.openArtifactPreview(detail.product_id, el.dataset.artifactId); });
+    });
   }
 
   App.refreshCopilot = async function refreshCopilot(productId) {
@@ -2846,8 +2863,64 @@
     } else if (artifact && artifact.exists && artifact.sizeBytes) {
       subtleMeta = '<div class="artifact-row-meta" style="margin-top:6px">Size: ' + App.esc(String(artifact.sizeBytes)) + ' bytes</div>';
     }
-    return '<div class="artifact-row"><div class="product-row"><h4>' + App.esc(artifact.label) + '</h4><div class="chip-row"><span class="artifact-chip ' + App.esc(contentState === 'valid' ? 'exists' : contentState) + '">' + App.esc(App.artifactContentLabel(artifact)) + '</span>' + (contentState === 'skeletal' ? '<span class="chip subtle">needs content</span>' : '') + '</div></div><div class="artifact-row-meta mono" style="margin-top:8px">' + App.esc(artifact.path || 'No path configured') + '</div>' + subtleMeta + '</div>';
+    var clickable = artifact && artifact.exists ? ' data-clickable="true" data-artifact-id="' + App.esc(artifact.id) + '"' : '';
+    return '<div class="artifact-row"' + clickable + '><div class="product-row"><h4>' + App.esc(artifact.label) + '</h4><div class="chip-row"><span class="artifact-chip ' + App.esc(contentState === 'valid' ? 'exists' : contentState) + '">' + App.esc(App.artifactContentLabel(artifact)) + '</span>' + (contentState === 'skeletal' ? '<span class="chip subtle">needs content</span>' : '') + '</div></div><div class="artifact-row-meta mono" style="margin-top:8px">' + App.esc(artifact.path || 'No path configured') + '</div>' + subtleMeta + '</div>';
   }
+
+  App.simpleMarkdownToHtml = function simpleMarkdownToHtml(md) {
+    var html = App.esc(md);
+    // Headers
+    html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
+    html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
+    html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+    // Bold and italic
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Code blocks
+    html = html.replace(/```[\s\S]*?```/g, function(m) {
+      return '<pre class="artifact-code-block">' + m.slice(3, -3).replace(/^\w+\n/, '') + '</pre>';
+    });
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // List items
+    html = html.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+    return html;
+  };
+
+  App.openArtifactPreview = async function openArtifactPreview(productId, artifactId) {
+    var existing = document.querySelector('.artifact-preview-panel');
+    if (existing) existing.remove();
+    var panel = document.createElement('div');
+    panel.className = 'artifact-preview-panel';
+    panel.innerHTML = '<div class="artifact-preview-header"><h3>Carregando...</h3><button class="btn btn-sm artifact-preview-close">Fechar</button></div><div class="artifact-preview-content"><p>Carregando conteúdo...</p></div>';
+    document.body.appendChild(panel);
+    panel.querySelector('.artifact-preview-close').addEventListener('click', function() { panel.remove(); });
+    try {
+      var data = await App.api('/products/' + encodeURIComponent(productId) + '/artifacts/' + encodeURIComponent(artifactId) + '/content');
+      if (!data.exists) {
+        panel.querySelector('.artifact-preview-content').innerHTML = '<p>Artifact não encontrado no disco.</p>';
+        return;
+      }
+      var fileName = (data.path || '').split(/[\\/]/).pop() || '';
+      panel.querySelector('.artifact-preview-header h3').textContent = fileName;
+      var isMarkdown = /\.md$/i.test(fileName);
+      if (isMarkdown) {
+        panel.querySelector('.artifact-preview-content').innerHTML = '<div class="artifact-md-render">' + App.simpleMarkdownToHtml(data.content) + '</div>';
+      } else {
+        var pre = document.createElement('pre');
+        pre.textContent = data.content;
+        panel.querySelector('.artifact-preview-content').innerHTML = '';
+        panel.querySelector('.artifact-preview-content').appendChild(pre);
+      }
+    } catch (e) {
+      panel.querySelector('.artifact-preview-content').innerHTML = '<p>Erro ao carregar: ' + App.esc(e.message) + '</p>';
+    }
+  };
 
   App.formatDateTime = function formatDateTime(ts) {
     if (!ts) return 'unknown';

@@ -82,6 +82,22 @@ function createProductRoutes({ productService, knowledgePackService, store, ptyM
     res.json(artifacts);
   });
 
+  router.get('/products/:id/artifacts/:artifactId/content', (req, res) => {
+    const fs = require('fs');
+    const artifacts = productService.getArtifacts(req.params.id);
+    if (!artifacts) return res.status(404).json({ content: '', path: '', exists: false });
+    const artifact = artifacts.find(a => a.id === req.params.artifactId);
+    if (!artifact || !artifact.exists || !artifact.path) {
+      return res.json({ content: '', path: artifact ? (artifact.path || '') : '', exists: false });
+    }
+    try {
+      const content = fs.readFileSync(artifact.path, 'utf-8');
+      res.json({ content: content, path: artifact.path, exists: true });
+    } catch (e) {
+      res.json({ content: '', path: artifact.path, exists: false });
+    }
+  });
+
   router.get('/products/:id/knowledge', (req, res) => {
     const knowledge = productService.getKnowledge(req.params.id, store.getWorkspaces(), store.getSessions());
     if (!knowledge) return res.status(404).json({ error: 'Not found' });
