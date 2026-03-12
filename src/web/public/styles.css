@@ -1357,6 +1357,103 @@ textarea:focus-visible,
 .copilot-done-compact { padding: 8px 16px; border-top: 1px solid var(--border); }
 .copilot-done-compact .copilot-done-row { padding: 3px 0; }
 
+/* Copilot 5-question format */
+.copilot-5q {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.copilot-question {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.copilot-question-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.copilot-question-label::before {
+  content: '\25CF ';
+  font-size: 8px;
+  vertical-align: middle;
+}
+.copilot-question-answer {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+.copilot-q-check {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.copilot-q-check.success { color: var(--success); }
+.copilot-q-check.missing { color: var(--danger); }
+
+/* Dialog effect block (start stage) */
+.dialog-effect-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+.dialog-effect-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dialog-effect-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.dialog-effect-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* Gate checks inline */
+.gate-checks-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+.gate-check {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gate-check.done { color: var(--success); }
+.gate-check.missing { color: var(--danger); }
+
+/* Success button */
+.btn-success {
+  background: var(--success) !important;
+  border-color: var(--success) !important;
+  color: #fff !important;
+}
+.btn-success:hover {
+  filter: brightness(1.1);
+}
+
 .pipeline-list,
 .artifact-list,
 .next-actions-list,

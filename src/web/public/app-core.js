@@ -1141,6 +1141,19 @@
     return '';
   }
 
+  App.getStageReason = function getStageReason(stageId) {
+    var reasons = {
+      'idea': 'Ideia \u00e9 o ponto de partida \u2014 capture o problema antes de tudo',
+      'brief': 'Brief \u00e9 o primeiro passo \u2014 define o problema antes de especificar',
+      'spec': 'Spec detalha a solu\u00e7\u00e3o \u2014 sem especifica\u00e7\u00e3o, implementa\u00e7\u00e3o \u00e9 chute',
+      'architecture': 'Arquitetura garante que a solu\u00e7\u00e3o \u00e9 vi\u00e1vel antes de codar',
+      'implementation': 'Implementa\u00e7\u00e3o transforma a spec em c\u00f3digo funcional',
+      'test': 'Testes validam que o c\u00f3digo faz o que a spec prometeu',
+      'release': 'Release prepara o produto para uso real'
+    };
+    return reasons[stageId] || 'Avance para a pr\u00f3xima etapa do produto';
+  };
+
   App.buildCopilotPanel = function buildCopilotPanel(detail) {
     var copilot = detail.copilot;
     if (!copilot) return '';
@@ -1158,9 +1171,7 @@
     var blockers = ops.blockers || ((copilot.current_state || {}).blockers || []).slice(0, 3).map(function(b) { return b.label || b; });
     var riskLevel = ops.risk_level || riskMeta.level || 'low';
     var riskMessage = ops.risk_message || riskMeta.message || '';
-    var reason = ops.reason || '';
     var evidence = ops.expected_evidence || '';
-    var workflow = ops.suggested_workflow || '';
 
     var riskClass = riskLevel === 'low' || riskLevel === 'success' ? 'tone-success' : (riskLevel === 'medium' || riskLevel === 'warning' ? 'tone-warning' : 'tone-danger');
 
@@ -1170,10 +1181,52 @@
       ? '<div class="copilot-blockers"><div class="copilot-blocker-item">&#9888; Product directory not found. Update the repository path to enable artifact detection.</div></div>'
       : '';
 
-    // Blockers section
-    var blockersHtml = pathWarningHtml + (blockers.length
-      ? '<div class="copilot-blockers">' + blockers.map(function(b) { return '<div class="copilot-blocker-item">&#10007; ' + App.esc(typeof b === 'string' ? b : b.label || '') + '</div>'; }).join('') + '</div>'
-      : '<div class="copilot-blockers"><div class="copilot-no-blockers">&#10003; No blockers</div></div>');
+    // 5-question format
+    var stageLabel = App.formatStageLabel(stageId, detail);
+    var phaseName = App.STAGE_TO_PHASE[stageId] || 'discovery';
+    var phaseCapitalized = phaseName.charAt(0).toUpperCase() + phaseName.slice(1);
+    var productName = (detail.product || detail).name || 'Produto';
+
+    // Q1: Onde estou
+    var q1Answer = App.esc(productName) + ' est\u00e1 na stage ' + App.esc(stageLabel) + ' (fase ' + App.esc(phaseCapitalized) + ')';
+
+    // Q2: O que falta — list missing artifacts
+    var missingArtifacts = (detail.artifacts || []).filter(function(a) { return !a.exists; });
+    var q2Html = '';
+    if (missingArtifacts.length === 0) {
+      q2Html = '<div class="copilot-q-check success">&#10003; Todos os artefatos do stage atual existem</div>';
+    } else {
+      q2Html = missingArtifacts.map(function(a) {
+        return '<div class="copilot-q-check missing">&#10007; ' + App.esc(a.path || a.label || a.artifact_id || '') + ' \u2014 falta criar</div>';
+      }).join('');
+    }
+
+    // Q3: O que bloqueia
+    var q3Html = pathWarningHtml;
+    if (blockers.length) {
+      q3Html += blockers.map(function(b) {
+        return '<div class="copilot-q-check missing">&#10007; ' + App.esc(typeof b === 'string' ? b : b.label || '') + '</div>';
+      }).join('');
+    } else if (!pathWarningHtml) {
+      q3Html = '<div class="copilot-q-check success">&#10003; Nada bloqueia</div>';
+    }
+
+    // Q4: Qual acao agora — hero CTA
+    var q4Html = '<div class="copilot-hero-cta">' + heroAction.html + '</div>';
+
+    // Q5: Evidencia esperada
+    var pipelineStage = (detail.pipeline || []).find(function(s) { return s && s.stage_id === stageId; });
+    var evidenceText = evidence || (pipelineStage && pipelineStage.goal ? pipelineStage.goal : '');
+    var q5Html = evidenceText ? App.esc(evidenceText) : '<span class="text-muted">Sem evid\u00eancia definida para este stage</span>';
+
+    // Build 5-question section
+    var fiveQHtml = '<div class="copilot-5q">' +
+      '<div class="copilot-question"><div class="copilot-question-label">Onde estou</div><div class="copilot-question-answer">' + q1Answer + '</div></div>' +
+      '<div class="copilot-question"><div class="copilot-question-label">O que falta</div><div class="copilot-question-answer">' + q2Html + '</div></div>' +
+      '<div class="copilot-question"><div class="copilot-question-label">O que bloqueia</div><div class="copilot-question-answer">' + q3Html + '</div></div>' +
+      '<div class="copilot-question"><div class="copilot-question-label">Qual a\u00e7\u00e3o agora</div><div class="copilot-question-answer">' + q4Html + '</div></div>' +
+      '<div class="copilot-question"><div class="copilot-question-label">Evid\u00eancia esperada</div><div class="copilot-question-answer">' + q5Html + '</div></div>' +
+    '</div>';
 
     // Done section (compact, max 5)
     var doneHtml = doneItems.length
@@ -1184,18 +1237,11 @@
 
     return '<section class="detail-panel copilot-hero-panel">' +
       '<div class="copilot-hero-header">' +
-        '<div class="copilot-hero-status"><h3>Project Copilot</h3><span class="chip ' + App.esc(statusMeta.className) + '">' + App.esc(statusMeta.label) + '</span></div>' +
+        '<div class="copilot-hero-status"><h3>Copilot</h3><span class="chip ' + App.esc(statusMeta.className) + '">' + App.esc(statusMeta.label) + '</span></div>' +
         '<div class="copilot-hero-risk ' + App.esc(riskClass) + '"><span class="risk-label">' + App.esc(riskMeta.label) + '</span></div>' +
       '</div>' +
-      blockersHtml +
-      '<div class="copilot-ops-section">' +
-        '<div class="copilot-hero-cta">' + heroAction.html +
-          (workflow ? '<span class="chip subtle" style="margin-left:8px">' + App.esc(workflow) + '</span>' : '') +
-        '</div>' +
-        (reason ? '<div class="copilot-reason-short">' + App.esc(reason) + '</div>' : '') +
-        (evidence ? '<div class="copilot-evidence-short">' + App.esc(evidence) + '</div>' : '') +
-        (riskMessage ? '<div class="copilot-risk-inline ' + App.esc(riskClass) + '">' + App.esc(riskMessage) + '</div>' : '') +
-      '</div>' +
+      fiveQHtml +
+      (riskMessage ? '<div class="copilot-risk-inline ' + App.esc(riskClass) + '" style="margin:0 16px 8px">' + App.esc(riskMessage) + '</div>' : '') +
       (pendingItems.length ? '<div class="copilot-hero-pending"><div class="meta-item-label" style="padding:8px 16px">Pending</div><div class="copilot-task-list">' + pendingItems.map(function(item) {
           var statusIcon = item.status === 'missing' ? '<span class="copilot-icon missing">&#10007;</span>'
             : item.status === 'blocked' ? '<span class="copilot-icon blocked">!</span>'
@@ -1876,9 +1922,34 @@
       preset_id: item.preset_id || '',
       preset_label: item.preset_label || ''
     })) + '"' + ((defaultPreset && item.preset_id === defaultPreset.preset_id && item.preset_type === defaultPreset.preset_type && item.knowledge_pack_id === defaultPreset.knowledge_pack_id) || (!defaultPreset && index === 0) ? ' selected' : '') + '>' + App.esc((item.knowledge_pack_name || item.knowledge_pack_id || 'Knowledge Pack') + ' - ' + item.preset_label) + '</option>').join('');
-    App.showDialog('Start ' + stage.label, '<div id="dlg-stage-error" class="dialog-error-msg" style="display:none"></div><label>Stage</label><input type="text" value="' + App.esc(stage.label) + '" disabled><label>Recommended Role</label><input type="text" value="' + App.esc(stage.recommended_role) + '" disabled>' + knowledgeBlock + handoffBlock + (uniqueStagePresets.length > 1 ? '<label>Execution Preset</label><select id="dlg-stage-preset">' + presetOptions + '</select>' : '') + '<label>Session Name</label><input type="text" id="dlg-stage-name" value="' + App.esc(defaultName) + '"><label>Runtime Agent</label><select id="dlg-stage-agent">' + App.buildAgentOptions(defaultAgent, stage.allowed_runtime_agents) + '</select><label>Model</label><select id="dlg-stage-model">' + App.buildModelOptionsFor(defaultAgent) + '</select><div id="dlg-stage-effort-wrap"><label>Effort</label><select id="dlg-stage-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div><label>Working Directory</label><input type="text" id="dlg-stage-dir" value="' + App.esc(workingDir) + '"><label>Goal</label><textarea disabled>' + App.esc(stage.goal) + '</textarea>', [
-      { label: 'Cancel', onClick: function() {} },
-      { label: 'Create Session', primary: true, closeOnSuccess: false, onClick: async function() {
+    var stageReason = App.getStageReason(stageId);
+    var agentLabel = App.resolveAgentLabel(defaultAgent);
+    var gateChecks = (detail.artifacts || []).map(function(a) {
+      return a.exists
+        ? '<span class="gate-check done">&#10003; ' + App.esc(a.label || a.artifact_id || '') + '</span>'
+        : '<span class="gate-check missing">&#10007; ' + App.esc(a.label || a.artifact_id || '') + ' falta criar</span>';
+    }).join(' ');
+    var evidenceText = ((detail.copilot || {}).operational_summary || {}).expected_evidence || stage.goal || '';
+
+    App.showDialog('Iniciar ' + stage.label, '<div id="dlg-stage-error" class="dialog-error-msg" style="display:none"></div>' +
+      '<div class="dialog-effect-block">' +
+        '<div class="dialog-effect-item"><div class="dialog-effect-label">O que vai acontecer:</div><div class="dialog-effect-text">Vai abrir um terminal com ' + App.esc(agentLabel) + ' para trabalhar no stage ' + App.esc(stage.label) + '</div></div>' +
+        '<div class="dialog-effect-item"><div class="dialog-effect-label">Evid\u00eancia esperada:</div><div class="dialog-effect-text">' + App.esc(evidenceText) + '</div></div>' +
+        '<div class="dialog-effect-item"><div class="dialog-effect-label">Por que esta \u00e9 a pr\u00f3xima a\u00e7\u00e3o:</div><div class="dialog-effect-text">' + App.esc(stageReason) + '</div></div>' +
+      '</div>' +
+      (gateChecks ? '<div class="gate-checks-inline">' + gateChecks + '</div>' : '') +
+      handoffBlock +
+      '<details class="dialog-accordion"><summary>&#9654; Op\u00e7\u00f5es avan\u00e7adas</summary><div class="dialog-accordion-body">' +
+        knowledgeBlock +
+        (uniqueStagePresets.length > 1 ? '<label>Execution Preset</label><select id="dlg-stage-preset">' + presetOptions + '</select>' : '') +
+        '<label>Session Name</label><input type="text" id="dlg-stage-name" value="' + App.esc(defaultName) + '">' +
+        '<label>Runtime Agent</label><select id="dlg-stage-agent">' + App.buildAgentOptions(defaultAgent, stage.allowed_runtime_agents) + '</select>' +
+        '<label>Model</label><select id="dlg-stage-model">' + App.buildModelOptionsFor(defaultAgent) + '</select>' +
+        '<div id="dlg-stage-effort-wrap"><label>Effort</label><select id="dlg-stage-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div>' +
+        '<label>Working Directory</label><input type="text" id="dlg-stage-dir" value="' + App.esc(workingDir) + '">' +
+      '</div></details>', [
+      { label: 'Cancelar', onClick: function() {} },
+      { label: 'Go', primary: true, className: 'btn-success', closeOnSuccess: false, onClick: async function() {
         var errorEl = document.getElementById('dlg-stage-error');
         if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
         const presetSelect = document.getElementById('dlg-stage-preset');
@@ -3579,7 +3650,7 @@
     actions.forEach(function(action) {
       var handler = action.onClick || action.action || function() {};
       var btn = document.createElement('button');
-      btn.className = 'btn ' + (action.primary ? 'btn-primary' : '');
+      btn.className = 'btn ' + (action.primary ? 'btn-primary' : '') + (action.className ? ' ' + action.className : '');
       btn.textContent = action.label;
       btn.addEventListener('click', async function() {
         try {
