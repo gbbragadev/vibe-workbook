@@ -582,36 +582,39 @@
     const readyStage = (product.pipeline || []).find(step => step && step.status === 'ready');
 
     if (currentRun && currentRun.stage_id && currentRun.stage_id !== 'idea' && currentRun.is_ready_to_complete) {
+      var completeStageLabel = App.formatStageLabel(currentRun.stage_id, product);
       return {
         action: 'complete-stage',
-        label: 'Finish stage',
-        description: 'This run already has enough evidence to close the current stage.',
+        label: 'Finalizar ' + completeStageLabel + ' \u2192',
+        description: 'Este run j\u00e1 possui evid\u00eancias suficientes para fechar o stage atual.',
         stageId: currentRun.stage_id
       };
     }
     if (nextAction) {
+      var nextStageLabel = App.formatStageLabel(nextAction.step_id || nextAction.stage_id || '', product);
       return {
         action: 'execute-next-action',
-        label: currentRun ? 'Execute next step' : 'Continue stage',
-        description: nextAction.label || nextAction.reason || 'Use the next recommended action for this product.',
+        label: 'Continuar ' + nextStageLabel + ' \u2192',
+        description: nextAction.label || nextAction.reason || 'Execute a pr\u00f3xima a\u00e7\u00e3o recomendada para este produto.',
         actionId: nextAction.id || '',
         stageId: nextAction.step_id || nextAction.stage_id || ''
       };
     }
     if (readyStage) {
+      var readyStageLabel = App.formatStageLabel(readyStage.stage_id, product);
       return {
         action: 'start-stage',
-        label: 'Start ready stage',
-        description: readyStage.goal || (readyStage.label + ' is ready to continue.'),
+        label: 'Iniciar ' + readyStageLabel + ' \u2192',
+        description: readyStage.goal || (readyStageLabel + ' est\u00e1 pronto para continuar.'),
         stageId: readyStage.stage_id
       };
     }
     return {
       action: 'open-detail',
-      label: 'Open product',
+      label: 'Ver detalhes',
       description: currentRun
-        ? 'Review the active run and decide the next move.'
-        : 'Open the product cockpit to review the current state.'
+        ? 'Revise o run ativo e decida o pr\u00f3ximo passo.'
+        : 'Abra o cockpit do produto para revisar o estado atual.'
     };
   }
 
@@ -654,38 +657,46 @@
     const detail = document.getElementById('product-detail');
 
     if (!state.products.length) {
-      summary.textContent = 'No products registered.';
-      overview.innerHTML = '<div class="empty-state"><h3>No products yet</h3><p>Products are the center of your workflow. Create your first product to start tracking stages, artifacts, and readiness.</p><button class="btn btn-primary" onclick="App.showProductWizard()">+ Create Product</button></div>';
-      detail.innerHTML = '<div class="empty-state"><h3>Select a product</h3><p>Choose a product from the list to see its pipeline, readiness, and copilot guidance.</p></div>';
+      summary.textContent = 'Nenhum produto registrado.';
+      overview.innerHTML = '<div class="empty-state"><h3>Nenhum produto ainda</h3><p>Produtos s\u00e3o o centro do seu workflow. Crie o primeiro para come\u00e7ar a acompanhar stages, artefatos e readiness.</p><button class="btn btn-primary" onclick="App.showProductWizard()">+ Criar Produto</button></div>';
+      detail.innerHTML = '<div class="empty-state"><h3>Selecione um produto</h3><p>Escolha um produto da lista para ver seu pipeline, readiness e orienta\u00e7\u00e3o do copilot.</p></div>';
       return;
     }
 
     if (!state.activeProductId || !state.products.find(p => p.product_id === state.activeProductId)) state.activeProductId = state.products[0].product_id;
 
-    summary.textContent = state.products.length + ' registered products';
+    summary.textContent = state.products.length + ' produto' + (state.products.length !== 1 ? 's' : '') + ' registrado' + (state.products.length !== 1 ? 's' : '');
     overview.innerHTML = state.products.map(product => {
       const artifact = product.artifact_summary || { present: 0, total: 0 };
       const nextAction = (product.next_actions || [])[0];
       const knowledgeSummary = product.knowledge_summary || { active_packs: 0, active_pack_names: [] };
       const currentRun = App.resolveCurrentRun(product);
       const primaryAction = App.resolveOverviewPrimaryAction(product);
-      const productStatus = (product.pipeline || []).some(step => step.status === 'in-progress')
-        ? 'in-progress'
-        : ((product.pipeline || []).some(step => step.status === 'ready') ? 'ready' : 'not-started');
-      const stageLabel = currentRun ? (currentRun.stage_label || currentRun.stage_id || 'active run') : (product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea');
-      const readinessLabel = (product.readiness && product.readiness.status) ? String(product.readiness.status).replace(/-/g, ' ') : 'not assessed';
-      const workspaceWarning = (product.workspace || {}).path_status && (product.workspace || {}).path_status !== 'valid'
-        ? '<span class="chip warn">runtime workspace needs attention</span>'
-        : '';
-      return '<article class="product-card ' + (product.product_id === state.activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +
-        '<div class="product-card-top"><div><div class="product-card-name">' + App.esc(product.name) + '</div>' +
-        '<div class="chip-row" style="margin-top:6px"><span class="chip">' + App.esc(product.category) + '</span><span class="chip subtle">stage: ' + App.esc(stageLabel) + '</span>' + workspaceWarning + '</div></div>' +
-        '<span class="status-pill ' + productStatus + '">' + App.stageStatusLabel(productStatus) + '</span></div>' +
-        '<div class="product-card-summary">' + App.esc(product.summary || 'No product summary available.') + '</div>' +
-        '<div class="product-card-stats"><div class="product-stat"><div class="product-stat-label">Artifacts</div><div class="product-stat-value">' + artifact.present + '/' + artifact.total + '</div></div><div class="product-stat"><div class="product-stat-label">Sessions</div><div class="product-stat-value">' + ((product.related_sessions || []).length) + '</div></div><div class="product-stat"><div class="product-stat-label">Readiness</div><div class="product-stat-value">' + App.esc(readinessLabel) + '</div></div><div class="product-stat"><div class="product-stat-label">Knowledge</div><div class="product-stat-value">' + App.esc(String(knowledgeSummary.active_packs || 0)) + '</div></div></div>' +
-        '<div class="chip-row knowledge-chip-row" style="margin-top:10px">' + App.buildKnowledgePackChips(product.active_knowledge_packs || [], true) + '</div>' +
-        (currentRun ? '<div class="product-card-run"><span class="product-card-run-label">Current run</span><strong>' + App.esc(App.formatStageSignalLabel(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active', product)) + '</strong><span class="artifact-row-meta">' + App.esc(currentRun.objective || 'Coordinated execution in progress.') + '</span></div>' : '') +
-        '<div class="product-card-footer"><div><div class="product-card-next-label">Recommended next move</div><div class="artifact-row-meta" style="margin-top:4px">' + App.esc(primaryAction ? primaryAction.description : (nextAction ? nextAction.label : 'Review the product detail to decide the next move.')) + '</div></div><div class="product-card-footer-actions">' + App.buildOverviewPrimaryActionButton(product, primaryAction) + '</div></div>' +
+      const stageLabel = product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea';
+      const trafficLight = (product.readiness && product.readiness.traffic_light) || 'gray';
+      const readinessLabel = (product.readiness && product.readiness.status) ? String(product.readiness.status).replace(/-/g, ' ') : 'n\u00e3o avaliado';
+      const summaryText = product.summary || 'Sem descri\u00e7\u00e3o dispon\u00edvel.';
+      return '<article class="product-card product-card-simplified ' + (product.product_id === state.activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +
+        '<div class="product-card-top">' +
+          '<div class="product-card-name-row"><span class="semaphore-dot semaphore-' + App.esc(trafficLight) + '"></span><span class="product-card-name">' + App.esc(product.name) + '</span></div>' +
+          '<span class="chip stage-chip">' + App.esc(App.formatStageLabel(stageLabel, product)) + '</span>' +
+        '</div>' +
+        '<div class="product-card-summary">' + App.esc(summaryText) + '</div>' +
+        '<div class="product-card-cta">' +
+          '<div class="product-card-next-label">Pr\u00f3ximo passo</div>' +
+          '<div class="artifact-row-meta" style="margin-top:4px">' + App.esc(primaryAction ? primaryAction.description : (nextAction ? nextAction.label : 'Revise o detalhe do produto para decidir o pr\u00f3ximo passo.')) + '</div>' +
+          '<div class="product-card-footer-actions">' + App.buildOverviewPrimaryActionButton(product, primaryAction) + '</div>' +
+        '</div>' +
+        '<details class="product-card-tech-details"><summary>Ver detalhes t\u00e9cnicos</summary>' +
+          '<div class="product-card-stats">' +
+            '<div class="product-stat"><div class="product-stat-label">Artefatos</div><div class="product-stat-value">' + artifact.present + '/' + artifact.total + '</div></div>' +
+            '<div class="product-stat"><div class="product-stat-label">Sess\u00f5es</div><div class="product-stat-value">' + ((product.related_sessions || []).length) + '</div></div>' +
+            '<div class="product-stat"><div class="product-stat-label">Readiness</div><div class="product-stat-value">' + App.esc(readinessLabel) + '</div></div>' +
+            '<div class="product-stat"><div class="product-stat-label">Knowledge</div><div class="product-stat-value">' + App.esc(String(knowledgeSummary.active_packs || 0)) + '</div></div>' +
+          '</div>' +
+          (currentRun ? '<div class="product-card-run"><span class="product-card-run-label">Run ativo</span><strong>' + App.esc(App.formatStageSignalLabel(currentRun.stage_label || currentRun.stage_id || currentRun.status || 'active', product)) + '</strong><span class="artifact-row-meta">' + App.esc(currentRun.objective || 'Execu\u00e7\u00e3o coordenada em andamento.') + '</span></div>' : '') +
+          '<div class="chip-row knowledge-chip-row" style="margin-top:10px">' + App.buildKnowledgePackChips(product.active_knowledge_packs || [], true) + '</div>' +
+        '</details>' +
         '</article>';
     }).join('');
 
@@ -716,20 +727,34 @@
     if (!readiness) return '';
     var light = readiness.traffic_light || 'red';
     var checklistHtml = (readiness.signals || []).map(function(s) {
+      var statusText = s.met ? ': criado' : ': falta criar';
       return '<div class="readiness-check ' + (s.met ? 'met' : 'unmet') + '">' +
-        (s.met ? '&#10003;' : '&#10007;') + ' ' + App.esc(s.label) + '</div>';
+        (s.met ? '&#10003; ' : '&#10007; ') + App.esc(s.label) + App.esc(statusText) + '</div>';
     }).join('');
-    var earlyStages = ['idea', 'brief', 'spec'];
     var currentStage = ((detail.product || {}).stage || '').toLowerCase();
-    var earlyStageHint = earlyStages.indexOf(currentStage) >= 0
-      ? '<div class="readiness-hint" style="padding:8px 16px;font-size:0.85em;opacity:0.7">Readiness builds as stages advance. Complete stages to accumulate evidence.</div>'
-      : '';
+    var actionHint = '';
+    if (light !== 'green') {
+      var currentIdx = App.STAGE_ORDER.indexOf(currentStage);
+      var nextStage = currentIdx >= 0 && currentIdx < App.STAGE_ORDER.length - 1
+        ? App.STAGE_ORDER[currentIdx + 1] : '';
+      if (nextStage) {
+        actionHint = '<div class="readiness-action-hint">' +
+          '<span>Inicie a stage ' + App.esc(nextStage) + '</span> ' +
+          '<button class="btn btn-sm" data-product-action="start-stage" data-stage-id="' + App.esc(nextStage) + '">Iniciar ' + App.esc(nextStage) + ' &rarr;</button>' +
+          '</div>';
+      } else if (currentStage === 'idea') {
+        actionHint = '<div class="readiness-action-hint">' +
+          '<span>Inicie a stage brief</span> ' +
+          '<button class="btn btn-sm" data-product-action="start-stage" data-stage-id="brief">Iniciar brief &rarr;</button>' +
+          '</div>';
+      }
+    }
 
     return '<section class="detail-panel"><div class="panel-header"><h3>Readiness</h3></div>' +
       '<div class="readiness-compact-body">' +
       '<div class="traffic-light-large traffic-light-' + App.esc(light) + '"></div>' +
       '<div class="readiness-checklist">' + checklistHtml + '</div>' +
-      '</div>' + earlyStageHint + '</section>';
+      '</div>' + actionHint + '</section>';
   }
 
   App.deriveReadinessDisplay = function deriveReadinessDisplay(readiness) {
@@ -1130,6 +1155,19 @@
     return '';
   }
 
+  App.getStageReason = function getStageReason(stageId) {
+    var reasons = {
+      'idea': 'Ideia \u00e9 o ponto de partida \u2014 capture o problema antes de tudo',
+      'brief': 'Brief \u00e9 o primeiro passo \u2014 define o problema antes de especificar',
+      'spec': 'Spec detalha a solu\u00e7\u00e3o \u2014 sem especifica\u00e7\u00e3o, implementa\u00e7\u00e3o \u00e9 chute',
+      'architecture': 'Arquitetura garante que a solu\u00e7\u00e3o \u00e9 vi\u00e1vel antes de codar',
+      'implementation': 'Implementa\u00e7\u00e3o transforma a spec em c\u00f3digo funcional',
+      'test': 'Testes validam que o c\u00f3digo faz o que a spec prometeu',
+      'release': 'Release prepara o produto para uso real'
+    };
+    return reasons[stageId] || 'Avance para a pr\u00f3xima etapa do produto';
+  };
+
   App.buildCopilotPanel = function buildCopilotPanel(detail) {
     var copilot = detail.copilot;
     if (!copilot) return '';
@@ -1147,9 +1185,7 @@
     var blockers = ops.blockers || ((copilot.current_state || {}).blockers || []).slice(0, 3).map(function(b) { return b.label || b; });
     var riskLevel = ops.risk_level || riskMeta.level || 'low';
     var riskMessage = ops.risk_message || riskMeta.message || '';
-    var reason = ops.reason || '';
     var evidence = ops.expected_evidence || '';
-    var workflow = ops.suggested_workflow || '';
 
     var riskClass = riskLevel === 'low' || riskLevel === 'success' ? 'tone-success' : (riskLevel === 'medium' || riskLevel === 'warning' ? 'tone-warning' : 'tone-danger');
 
@@ -1159,10 +1195,52 @@
       ? '<div class="copilot-blockers"><div class="copilot-blocker-item">&#9888; Product directory not found. Update the repository path to enable artifact detection.</div></div>'
       : '';
 
-    // Blockers section
-    var blockersHtml = pathWarningHtml + (blockers.length
-      ? '<div class="copilot-blockers">' + blockers.map(function(b) { return '<div class="copilot-blocker-item">&#10007; ' + App.esc(typeof b === 'string' ? b : b.label || '') + '</div>'; }).join('') + '</div>'
-      : '<div class="copilot-blockers"><div class="copilot-no-blockers">&#10003; No blockers</div></div>');
+    // 5-question format
+    var stageLabel = App.formatStageLabel(stageId, detail);
+    var phaseName = App.STAGE_TO_PHASE[stageId] || 'discovery';
+    var phaseCapitalized = phaseName.charAt(0).toUpperCase() + phaseName.slice(1);
+    var productName = (detail.product || detail).name || 'Produto';
+
+    // Q1: Onde estou
+    var q1Answer = App.esc(productName) + ' est\u00e1 na stage ' + App.esc(stageLabel) + ' (fase ' + App.esc(phaseCapitalized) + ')';
+
+    // Q2: O que falta — list missing artifacts
+    var missingArtifacts = (detail.artifacts || []).filter(function(a) { return !a.exists; });
+    var q2Html = '';
+    if (missingArtifacts.length === 0) {
+      q2Html = '<div class="copilot-q-check success">&#10003; Todos os artefatos do stage atual existem</div>';
+    } else {
+      q2Html = missingArtifacts.map(function(a) {
+        return '<div class="copilot-q-check missing">&#10007; ' + App.esc(a.path || a.label || a.artifact_id || '') + ' \u2014 falta criar</div>';
+      }).join('');
+    }
+
+    // Q3: O que bloqueia
+    var q3Html = pathWarningHtml;
+    if (blockers.length) {
+      q3Html += blockers.map(function(b) {
+        return '<div class="copilot-q-check missing">&#10007; ' + App.esc(typeof b === 'string' ? b : b.label || '') + '</div>';
+      }).join('');
+    } else if (!pathWarningHtml) {
+      q3Html = '<div class="copilot-q-check success">&#10003; Nada bloqueia</div>';
+    }
+
+    // Q4: Qual acao agora — hero CTA
+    var q4Html = '<div class="copilot-hero-cta">' + heroAction.html + '</div>';
+
+    // Q5: Evidencia esperada
+    var pipelineStage = (detail.pipeline || []).find(function(s) { return s && s.stage_id === stageId; });
+    var evidenceText = evidence || (pipelineStage && pipelineStage.goal ? pipelineStage.goal : '');
+    var q5Html = evidenceText ? App.esc(evidenceText) : '<span class="text-muted">Sem evid\u00eancia definida para este stage</span>';
+
+    // Build 5-question section
+    var fiveQHtml = '<div class="copilot-5q">' +
+      '<div class="copilot-question"><div class="copilot-question-label">Onde estou</div><div class="copilot-question-answer">' + q1Answer + '</div></div>' +
+      '<div class="copilot-question"><div class="copilot-question-label">O que falta</div><div class="copilot-question-answer">' + q2Html + '</div></div>' +
+      '<div class="copilot-question"><div class="copilot-question-label">O que bloqueia</div><div class="copilot-question-answer">' + q3Html + '</div></div>' +
+      '<div class="copilot-question"><div class="copilot-question-label">Qual a\u00e7\u00e3o agora</div><div class="copilot-question-answer">' + q4Html + '</div></div>' +
+      '<div class="copilot-question"><div class="copilot-question-label">Evid\u00eancia esperada</div><div class="copilot-question-answer">' + q5Html + '</div></div>' +
+    '</div>';
 
     // Done section (compact, max 5)
     var doneHtml = doneItems.length
@@ -1173,18 +1251,11 @@
 
     return '<section class="detail-panel copilot-hero-panel">' +
       '<div class="copilot-hero-header">' +
-        '<div class="copilot-hero-status"><h3>Project Copilot</h3><span class="chip ' + App.esc(statusMeta.className) + '">' + App.esc(statusMeta.label) + '</span></div>' +
+        '<div class="copilot-hero-status"><h3>Copilot</h3><span class="chip ' + App.esc(statusMeta.className) + '">' + App.esc(statusMeta.label) + '</span></div>' +
         '<div class="copilot-hero-risk ' + App.esc(riskClass) + '"><span class="risk-label">' + App.esc(riskMeta.label) + '</span></div>' +
       '</div>' +
-      blockersHtml +
-      '<div class="copilot-ops-section">' +
-        '<div class="copilot-hero-cta">' + heroAction.html +
-          (workflow ? '<span class="chip subtle" style="margin-left:8px">' + App.esc(workflow) + '</span>' : '') +
-        '</div>' +
-        (reason ? '<div class="copilot-reason-short">' + App.esc(reason) + '</div>' : '') +
-        (evidence ? '<div class="copilot-evidence-short">' + App.esc(evidence) + '</div>' : '') +
-        (riskMessage ? '<div class="copilot-risk-inline ' + App.esc(riskClass) + '">' + App.esc(riskMessage) + '</div>' : '') +
-      '</div>' +
+      fiveQHtml +
+      (riskMessage ? '<div class="copilot-risk-inline ' + App.esc(riskClass) + '" style="margin:0 16px 8px">' + App.esc(riskMessage) + '</div>' : '') +
       (pendingItems.length ? '<div class="copilot-hero-pending"><div class="meta-item-label" style="padding:8px 16px">Pending</div><div class="copilot-task-list">' + pendingItems.map(function(item) {
           var statusIcon = item.status === 'missing' ? '<span class="copilot-icon missing">&#10007;</span>'
             : item.status === 'blocked' ? '<span class="copilot-icon blocked">!</span>'
@@ -1683,6 +1754,9 @@
     root.querySelectorAll('[data-lifecycle-action="submit-retrospective"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleSubmitRetrospective(detail.product_id); }); });
     root.querySelectorAll('[data-product-action="delete-product"]').forEach(function(el) { el.addEventListener('click', function() { App.deleteProduct(detail.product_id, detail.name); }); });
     root.querySelectorAll('[data-product-action="reset-lifecycle"]').forEach(function(el) { el.addEventListener('click', function() { App.resetProduct(detail.product_id, detail.name); }); });
+    root.querySelectorAll('.artifact-row[data-clickable]').forEach(function(el) {
+      el.addEventListener('click', function() { App.openArtifactPreview(detail.product_id, el.dataset.artifactId); });
+    });
   }
 
   App.refreshCopilot = async function refreshCopilot(productId) {
@@ -1865,9 +1939,34 @@
       preset_id: item.preset_id || '',
       preset_label: item.preset_label || ''
     })) + '"' + ((defaultPreset && item.preset_id === defaultPreset.preset_id && item.preset_type === defaultPreset.preset_type && item.knowledge_pack_id === defaultPreset.knowledge_pack_id) || (!defaultPreset && index === 0) ? ' selected' : '') + '>' + App.esc((item.knowledge_pack_name || item.knowledge_pack_id || 'Knowledge Pack') + ' - ' + item.preset_label) + '</option>').join('');
-    App.showDialog('Start ' + stage.label, '<div id="dlg-stage-error" class="dialog-error-msg" style="display:none"></div><label>Stage</label><input type="text" value="' + App.esc(stage.label) + '" disabled><label>Recommended Role</label><input type="text" value="' + App.esc(stage.recommended_role) + '" disabled>' + knowledgeBlock + handoffBlock + (uniqueStagePresets.length > 1 ? '<label>Execution Preset</label><select id="dlg-stage-preset">' + presetOptions + '</select>' : '') + '<label>Session Name</label><input type="text" id="dlg-stage-name" value="' + App.esc(defaultName) + '"><label>Runtime Agent</label><select id="dlg-stage-agent">' + App.buildAgentOptions(defaultAgent, stage.allowed_runtime_agents) + '</select><label>Model</label><select id="dlg-stage-model">' + App.buildModelOptionsFor(defaultAgent) + '</select><div id="dlg-stage-effort-wrap"><label>Effort</label><select id="dlg-stage-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div><label>Working Directory</label><input type="text" id="dlg-stage-dir" value="' + App.esc(workingDir) + '"><label>Goal</label><textarea disabled>' + App.esc(stage.goal) + '</textarea>', [
-      { label: 'Cancel', onClick: function() {} },
-      { label: 'Create Session', primary: true, closeOnSuccess: false, onClick: async function() {
+    var stageReason = App.getStageReason(stageId);
+    var agentLabel = App.resolveAgentLabel(defaultAgent);
+    var gateChecks = (detail.artifacts || []).map(function(a) {
+      return a.exists
+        ? '<span class="gate-check done">&#10003; ' + App.esc(a.label || a.artifact_id || '') + '</span>'
+        : '<span class="gate-check missing">&#10007; ' + App.esc(a.label || a.artifact_id || '') + ' falta criar</span>';
+    }).join(' ');
+    var evidenceText = ((detail.copilot || {}).operational_summary || {}).expected_evidence || stage.goal || '';
+
+    App.showDialog('Iniciar ' + stage.label, '<div id="dlg-stage-error" class="dialog-error-msg" style="display:none"></div>' +
+      '<div class="dialog-effect-block">' +
+        '<div class="dialog-effect-item"><div class="dialog-effect-label">O que vai acontecer:</div><div class="dialog-effect-text">Vai abrir um terminal com ' + App.esc(agentLabel) + ' para trabalhar no stage ' + App.esc(stage.label) + '</div></div>' +
+        '<div class="dialog-effect-item"><div class="dialog-effect-label">Evid\u00eancia esperada:</div><div class="dialog-effect-text">' + App.esc(evidenceText) + '</div></div>' +
+        '<div class="dialog-effect-item"><div class="dialog-effect-label">Por que esta \u00e9 a pr\u00f3xima a\u00e7\u00e3o:</div><div class="dialog-effect-text">' + App.esc(stageReason) + '</div></div>' +
+      '</div>' +
+      (gateChecks ? '<div class="gate-checks-inline">' + gateChecks + '</div>' : '') +
+      handoffBlock +
+      '<details class="dialog-accordion"><summary>&#9654; Op\u00e7\u00f5es avan\u00e7adas</summary><div class="dialog-accordion-body">' +
+        knowledgeBlock +
+        (uniqueStagePresets.length > 1 ? '<label>Execution Preset</label><select id="dlg-stage-preset">' + presetOptions + '</select>' : '') +
+        '<label>Session Name</label><input type="text" id="dlg-stage-name" value="' + App.esc(defaultName) + '">' +
+        '<label>Runtime Agent</label><select id="dlg-stage-agent">' + App.buildAgentOptions(defaultAgent, stage.allowed_runtime_agents) + '</select>' +
+        '<label>Model</label><select id="dlg-stage-model">' + App.buildModelOptionsFor(defaultAgent) + '</select>' +
+        '<div id="dlg-stage-effort-wrap"><label>Effort</label><select id="dlg-stage-effort">' + App.buildEffortOptionsFor(defaultAgent) + '</select></div>' +
+        '<label>Working Directory</label><input type="text" id="dlg-stage-dir" value="' + App.esc(workingDir) + '">' +
+      '</div></details>', [
+      { label: 'Cancelar', onClick: function() {} },
+      { label: 'Go', primary: true, className: 'btn-success', closeOnSuccess: false, onClick: async function() {
         var errorEl = document.getElementById('dlg-stage-error');
         if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
         const presetSelect = document.getElementById('dlg-stage-preset');
@@ -2764,8 +2863,64 @@
     } else if (artifact && artifact.exists && artifact.sizeBytes) {
       subtleMeta = '<div class="artifact-row-meta" style="margin-top:6px">Size: ' + App.esc(String(artifact.sizeBytes)) + ' bytes</div>';
     }
-    return '<div class="artifact-row"><div class="product-row"><h4>' + App.esc(artifact.label) + '</h4><div class="chip-row"><span class="artifact-chip ' + App.esc(contentState === 'valid' ? 'exists' : contentState) + '">' + App.esc(App.artifactContentLabel(artifact)) + '</span>' + (contentState === 'skeletal' ? '<span class="chip subtle">needs content</span>' : '') + '</div></div><div class="artifact-row-meta mono" style="margin-top:8px">' + App.esc(artifact.path || 'No path configured') + '</div>' + subtleMeta + '</div>';
+    var clickable = artifact && artifact.exists ? ' data-clickable="true" data-artifact-id="' + App.esc(artifact.id) + '"' : '';
+    return '<div class="artifact-row"' + clickable + '><div class="product-row"><h4>' + App.esc(artifact.label) + '</h4><div class="chip-row"><span class="artifact-chip ' + App.esc(contentState === 'valid' ? 'exists' : contentState) + '">' + App.esc(App.artifactContentLabel(artifact)) + '</span>' + (contentState === 'skeletal' ? '<span class="chip subtle">needs content</span>' : '') + '</div></div><div class="artifact-row-meta mono" style="margin-top:8px">' + App.esc(artifact.path || 'No path configured') + '</div>' + subtleMeta + '</div>';
   }
+
+  App.simpleMarkdownToHtml = function simpleMarkdownToHtml(md) {
+    var html = App.esc(md);
+    // Headers
+    html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
+    html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
+    html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+    // Bold and italic
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Code blocks
+    html = html.replace(/```[\s\S]*?```/g, function(m) {
+      return '<pre class="artifact-code-block">' + m.slice(3, -3).replace(/^\w+\n/, '') + '</pre>';
+    });
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // List items
+    html = html.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+    return html;
+  };
+
+  App.openArtifactPreview = async function openArtifactPreview(productId, artifactId) {
+    var existing = document.querySelector('.artifact-preview-panel');
+    if (existing) existing.remove();
+    var panel = document.createElement('div');
+    panel.className = 'artifact-preview-panel';
+    panel.innerHTML = '<div class="artifact-preview-header"><h3>Carregando...</h3><button class="btn btn-sm artifact-preview-close">Fechar</button></div><div class="artifact-preview-content"><p>Carregando conteúdo...</p></div>';
+    document.body.appendChild(panel);
+    panel.querySelector('.artifact-preview-close').addEventListener('click', function() { panel.remove(); });
+    try {
+      var data = await App.api('/products/' + encodeURIComponent(productId) + '/artifacts/' + encodeURIComponent(artifactId) + '/content');
+      if (!data.exists) {
+        panel.querySelector('.artifact-preview-content').innerHTML = '<p>Artifact não encontrado no disco.</p>';
+        return;
+      }
+      var fileName = (data.path || '').split(/[\\/]/).pop() || '';
+      panel.querySelector('.artifact-preview-header h3').textContent = fileName;
+      var isMarkdown = /\.md$/i.test(fileName);
+      if (isMarkdown) {
+        panel.querySelector('.artifact-preview-content').innerHTML = '<div class="artifact-md-render">' + App.simpleMarkdownToHtml(data.content) + '</div>';
+      } else {
+        var pre = document.createElement('pre');
+        pre.textContent = data.content;
+        panel.querySelector('.artifact-preview-content').innerHTML = '';
+        panel.querySelector('.artifact-preview-content').appendChild(pre);
+      }
+    } catch (e) {
+      panel.querySelector('.artifact-preview-content').innerHTML = '<p>Erro ao carregar: ' + App.esc(e.message) + '</p>';
+    }
+  };
 
   App.formatDateTime = function formatDateTime(ts) {
     if (!ts) return 'unknown';
@@ -3568,7 +3723,7 @@
     actions.forEach(function(action) {
       var handler = action.onClick || action.action || function() {};
       var btn = document.createElement('button');
-      btn.className = 'btn ' + (action.primary ? 'btn-primary' : '');
+      btn.className = 'btn ' + (action.primary ? 'btn-primary' : '') + (action.className ? ' ' + action.className : '');
       btn.textContent = action.label;
       btn.addEventListener('click', async function() {
         try {

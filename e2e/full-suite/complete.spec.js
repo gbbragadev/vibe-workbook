@@ -420,6 +420,21 @@ test.describe('6. API Produtos', () => {
     expect([200, 404]).toContain(r.status);
   });
 
+  test('6.8b GET /products/:id/artifacts/:artifactId/content retorna conteúdo', async ({ page }) => {
+    const list = await api(page, 'GET', '/products');
+    const products = Array.isArray(list.data) ? list.data : (list.data?.products || []);
+    if (!products.length) return;
+    const productId = pid(products[0]);
+    const artRes = await api(page, 'GET', `/products/${productId}/artifacts`);
+    if (artRes.status !== 200 || !Array.isArray(artRes.data) || !artRes.data.length) return;
+    const artifact = artRes.data[0];
+    const r = await api(page, 'GET', `/products/${productId}/artifacts/${artifact.id}/content`);
+    expect([200]).toContain(r.status);
+    expect(r.data).toHaveProperty('exists');
+    expect(r.data).toHaveProperty('content');
+    expect(r.data).toHaveProperty('path');
+  });
+
   test('6.9 DELETE /products/:id remove produto', async ({ page }) => {
     const { id, tmpDir } = await createTestProduct(page, 'del-test');
     expect(id).toBeTruthy();
