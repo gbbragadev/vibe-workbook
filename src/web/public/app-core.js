@@ -672,8 +672,8 @@
       const knowledgeSummary = product.knowledge_summary || { active_packs: 0, active_pack_names: [] };
       const currentRun = App.resolveCurrentRun(product);
       const primaryAction = App.resolveOverviewPrimaryAction(product);
-      const stageLabel = currentRun ? (currentRun.stage_label || currentRun.stage_id || 'active run') : (product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea');
-      const trafficLight = (product.readiness && product.readiness.traffic_light) || 'red';
+      const stageLabel = product.current_stage_id || product.computed_stage_signal || product.declared_stage || 'idea';
+      const trafficLight = (product.readiness && product.readiness.traffic_light) || 'gray';
       const readinessLabel = (product.readiness && product.readiness.status) ? String(product.readiness.status).replace(/-/g, ' ') : 'n\u00e3o avaliado';
       const summaryText = product.summary || 'Sem descri\u00e7\u00e3o dispon\u00edvel.';
       return '<article class="product-card product-card-simplified ' + (product.product_id === state.activeProductId ? 'active' : '') + '" data-product-id="' + product.product_id + '">' +

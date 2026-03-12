@@ -895,6 +895,9 @@ textarea:focus-visible,
   background: #ef4444;
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
 }
+.semaphore-gray {
+  background: rgba(148, 163, 184, 0.5);
+}
 
 .stage-chip {
   background: var(--accent);
