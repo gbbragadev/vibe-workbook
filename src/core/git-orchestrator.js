@@ -189,6 +189,27 @@ class GitOrchestrator {
   }
 
   /**
+   * Stashes all changes including untracked files
+   */
+  async stashChanges(cwd) {
+    const output = await this._runGit(
+      cwd,
+      'stash push --include-untracked -m "[vibe-auto-stash] Pre-run auto-stash"'
+    );
+    return output || '';
+  }
+
+  /**
+   * Creates a commit even if there are no staged changes (--allow-empty)
+   */
+  async commitAllowEmpty(cwd, message) {
+    const safeMessage = escapeGitArg(message);
+    await this._runGit(cwd, `commit --allow-empty --author="${this.authorString}" -m "${safeMessage}"`);
+    const hash = await this._runGit(cwd, 'rev-parse HEAD');
+    return (hash || '').trim();
+  }
+
+  /**
    * Resets the working tree to a specific commit hash and cleans untracked files
    */
   async hardReset(cwd, hash) {

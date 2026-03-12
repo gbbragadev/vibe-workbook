@@ -1336,6 +1336,8 @@
     return '<div class="product-detail-header"><div class="product-row"><div><h2>' + App.esc(detail.name) + ' <span class="traffic-light traffic-light-' + App.esc(trafficLight) + '"></span></h2><div class="product-subtitle">' + App.esc(detail.summary || 'No summary available.') + '</div></div><div class="detail-badges"><span class="chip">' + App.esc(detail.category) + '</span><span class="chip subtle">stage: ' + App.esc(detail.current_stage_id || detail.computed_stage_signal || detail.declared_stage || 'idea') + '</span>' + App.buildKnowledgePackChips(detail.knowledge_packs || [], true) + '</div></div><div class="product-detail-actions">' +
       ((detail.workspace || {}).runtime_workspace_id ? '<button class="btn btn-sm btn-primary" data-product-action="open-workspace">Open Runtime Workspace</button>' : '') +
       '<button class="btn btn-sm" data-product-action="change-workspace">Change Runtime Workspace</button>' +
+      '<button class="btn btn-sm" data-product-action="reset-lifecycle">Resetar lifecycle</button>' +
+      '<button class="btn btn-sm btn-worker-danger" data-product-action="delete-product">Excluir produto</button>' +
       '</div></div>' +
       App.buildLifecyclePhaseBar(detail) +
       '<div class="product-detail-scroll">' +
@@ -1679,12 +1681,37 @@
     root.querySelectorAll('[data-lifecycle-action="add-feedback"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleAddFeedback(detail.product_id); }); });
     root.querySelectorAll('[data-lifecycle-action="create-improvement-run"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleCreateImprovementRun(detail.product_id); }); });
     root.querySelectorAll('[data-lifecycle-action="submit-retrospective"]').forEach(function(el) { el.addEventListener('click', function() { App.lifecycleSubmitRetrospective(detail.product_id); }); });
+    root.querySelectorAll('[data-product-action="delete-product"]').forEach(function(el) { el.addEventListener('click', function() { App.deleteProduct(detail.product_id, detail.name); }); });
+    root.querySelectorAll('[data-product-action="reset-lifecycle"]').forEach(function(el) { el.addEventListener('click', function() { App.resetProduct(detail.product_id, detail.name); }); });
   }
 
   App.refreshCopilot = async function refreshCopilot(productId) {
     await App.loadProducts(true);
     await App.loadProductDetail(productId, true);
     App.renderCurrentView();
+  }
+
+  App.deleteProduct = async function deleteProduct(productId, productName) {
+    if (!confirm('Excluir o produto "' + productName + '"? Esta ação não pode ser desfeita.')) return;
+    try {
+      await App.api('/products/' + encodeURIComponent(productId), { method: 'DELETE' });
+      await App.loadProducts(true);
+      App.renderCurrentView();
+    } catch (e) {
+      alert('Erro ao excluir produto: ' + e.message);
+    }
+  }
+
+  App.resetProduct = async function resetProduct(productId, productName) {
+    if (!confirm('Resetar o produto "' + productName + '"? Isso apagará lifecycle, métricas e feedback, mantendo nome e repo.')) return;
+    try {
+      await App.api('/products/' + encodeURIComponent(productId) + '/reset', { method: 'POST' });
+      await App.loadProducts(true);
+      await App.loadProductDetail(productId, true);
+      App.renderCurrentView();
+    } catch (e) {
+      alert('Erro ao resetar produto: ' + e.message);
+    }
   }
 
   App.reviewCopilotCandidate = async function reviewCopilotCandidate(productId, candidateId, accepted) {

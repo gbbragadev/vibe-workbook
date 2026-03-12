@@ -1838,12 +1838,20 @@ class ProductService {
         }
 
         if (dirtyState.dirty) {
-          return { error: formatStartStageDirtyError(workingDir, dirtyState), status: 400 };
+          try {
+            await this.gitOrchestrator.stashChanges(workingDir);
+          } catch (e) {
+            return { error: formatStartStageDirtyError(workingDir, dirtyState), status: 400 };
+          }
         }
         try {
-          preRunHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`, workingDir);
+          preRunHash = await this.gitOrchestrator.commitAllowEmpty(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`);
         } catch (e) {
-          console.error('[Milestone 4A] Failed to create Pre-Run Checkpoint:', e);
+          try {
+            preRunHash = await this.gitOrchestrator.commitAll(workingDir, `[vibe-chkpt] Pre-Run Checkpoint for ${stageId}`, workingDir);
+          } catch (e2) {
+            console.error('[Milestone 4A] Failed to create Pre-Run Checkpoint:', e2);
+          }
         }
       }
     }
@@ -2239,6 +2247,43 @@ class ProductService {
     registry.generated_at = new Date().toISOString();
     writeJsonAtomic(this.registryFile, registry);
     return { retrospective, locked: payload.lock_product === true };
+  }
+
+  deleteProduct(productId) {
+    const registry = this.getRegistry();
+    const idx = registry.products.findIndex((p) => p.product_id === productId || p.id === productId);
+    if (idx === -1) return { error: 'Product not found', status: 404 };
+    registry.products.splice(idx, 1);
+    registry.generated_at = new Date().toISOString();
+    writeJsonAtomic(this.registryFile, registry);
+
+    try {
+      const data = JSON.parse(require('fs').readFileSync(this.knowledgePackService.bindingsFile, 'utf8'));
+      if (Array.isArray(data.bindings)) {
+        data.bindings = data.bindings.filter((b) => b.product_id !== productId);
+        writeJsonAtomic(this.knowledgePackService.bindingsFile, data);
+      }
+    } catch (e) { /* bindings opcionais */ }
+
+    return { deleted: true };
+  }
+
+  resetProduct(productId) {
+    const registry = this.getRegistry();
+    const product = registry.products.find((p) => p.product_id === productId || p.id === productId);
+    if (!product) return { error: 'Product not found', status: 404 };
+
+    product.lifecycle = { phase: 'discovery', health_score: null };
+    product.launch = { checklist: [], launched_at: null };
+    product.post_launch = { metrics: [], feedback_items: [], improvement_runs: [] };
+    product.sunset = { criteria: '', planned_date: null };
+    product.stage = 'discovery';
+    product.status = 'active';
+    product.timestamps = product.timestamps || {};
+    product.timestamps.updated_at = new Date().toISOString();
+    registry.generated_at = new Date().toISOString();
+    writeJsonAtomic(this.registryFile, registry);
+    return { reset: true, product };
   }
 }
 
